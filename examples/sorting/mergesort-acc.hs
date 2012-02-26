@@ -15,6 +15,32 @@ import System.Environment (getArgs)
 import System.Random ()
 import System.Random.MWC  (uniformR, withSystemRandom, Variate, GenIO)
 
+{- 
+ - Broad overview:
+ -   1. Split data into k blocks
+ -   2. Sort each block in parallel with bitonic sort
+ -   3. Perform log k steps of pairwise merging
+ -      a. To merge two blocks, sample several every 256th element from each 
+ -         block
+ -      b. Compute the ranks of each sample in each array being merged:
+ -          i.  the rank in its own array is just its index
+ -          ii. the rank in the other array is found by binary search, which 
+ -              can be bounded using knowledge about samples chosen from that 
+ -              array
+ -      c. These ranks define the boundaries of the sub-blocks of the final 
+ -         result
+ -      d. Using this, compute the rank of each element, which will be the sum 
+ -         of its ranks in the two sub-blocks being merged
+ -          i.  the rank in its own array is its index
+ -          ii. the rank in the other array is found by binary search (using 
+ -              map)
+ -      e. Scatter: each thread (from the previous step) writes out its 
+ -         element to the correct position. 
+ -
+ - NOTE: The bin-searching can be expensive, so make sure it's done in on-chip 
+ -       shared memory (hence, the 256-element limit).
+ -}
+ 
 {-
 main :: IO ()
 main = withSystemRandom $ \gen -> do
@@ -56,35 +82,7 @@ convertUArray v =
     let arr = Acc.fromIArray v in
         evaluate (arr `Acc.indexArray` (Z:.0)) >> return arr
 
-{- 
- - Broad overview:
- -   1. Split data into k blocks
- -   2. Sort each block in parallel with bitonic sort
- -   3. Perform log k steps of pairwise merging
- -      a. To merge two blocks, sample several every 256th element from each 
- -         block
- -      b. Compute the ranks of each sample in each array being merged:
- -          i.  the rank in its own array is just its index
- -          ii. the rank in the other array is found by binary search, which 
- -              can be bounded using knowledge about samples chosen from that 
- -              array
- -      c. These ranks define the boundaries of the sub-blocks of the final 
- -         result
- -      d. Using this, compute the rank of each element, which will be the sum 
- -         of its ranks in the two sub-blocks being merged
- -          i.  the rank in its own array is its index
- -          ii. the rank in the other array is found by binary search (using 
- -              map)
- -      e. Scatter: each thread (from the previous step) writes out its 
- -         element to the correct position. 
- -
- - NOTE: The bin-searching can be expensive, so make sure it's done in on-chip 
- -       shared memory (hence, the 256-element limit).
- -}
--- reduce = foldl
---sortAcc :: Elt a => Vector a -> Acc (Vector a)
---sortAcc k arr = 
-    
+   
 xor 1 1 = 0
 xor 0 1 = 1
 xor 1 0 = 1
@@ -98,6 +96,8 @@ scatter ind orig = Acc.permute const orig fetchInd orig
     where fetchInd x = index1 (ind ! x)
 
 
+-- The main mergesort. Theoretically, when bitonicSort and mergeSegPairs are
+-- written, this should work.
 mergesort :: Acc (Vector Int) -> Acc (Vector Int)
 mergesort vec = loop vec segments
   where
@@ -119,7 +119,7 @@ mergesort vec = loop vec segments
 
 -- Given segment array, merge adjacent pairs (via addition) to make the new 
 -- segment array. E.g., [256,256,256,232] ==> [512, 488]
--- TODO: Fix so that this works for odd length arrays
+-- TODO: Fix so that this works for odd length arrays.
 mergeSegs :: Acc (Vector Int) -> Acc (Vector Int)
 mergeSegs segs = newSegs
   where
@@ -148,8 +148,12 @@ mergeSegPairs vec segs = undefined
     -- would it help to get a list of the indices of the samples?
     
 
--- TODO: might want to actually sort some stuff here...
-bitonicSort v s = v
+{- TODO: might want to actually sort some stuff here...
+ - Make sure that each segment (specified in segs) of vec is sorted in
+ - ascending order. To start, each seg has length 256 (except possibly the
+ - last one if arrays of non-power-of-two length are allowed)
+ -}
+bitonicSort vec segs = vec
 
 -- basically, division rounded up
 ceilDiv :: Exp Int -> Exp Int -> Exp Int
