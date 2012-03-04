@@ -8,6 +8,10 @@ import Data.List
 import System.CPUTime (getCPUTime)
 import Text.Printf
 
+import qualified Data.Vector.Unboxed as V 
+import qualified Data.Vector.Unboxed.Mutable as MV
+import Control.Exception
+
 foreign import ccall unsafe "wrap_cilksort"
   c_cilksort ::  Ptr CLong -> Ptr CLong -> CLong -> IO CLong
 
@@ -34,8 +38,9 @@ main =
      -- runCilkSort' size runs
 
      seed <- newStdGen
+
      let a = randomList (fromIntegral size) seed
-         b = randomList (fromIntegral size) seed
+         b = [1..size]
        in 
         withArray a $ \pa ->
         withArray b $ \pb ->
@@ -57,4 +62,19 @@ runCilkSort' xs ys sz n = do
 
 randomList :: Int -> StdGen -> [Int]
 randomList n = take n . unfoldr (Just . random)
+
+-- Create a vector containing the numbers [0,N) in random order.
+randomPermutation :: Int -> StdGen -> V.Vector Int
+randomPermutation len rng = 
+  -- Annoyingly there is no MV.generate:
+  V.create (do v <- V.unsafeThaw$ V.generate len id
+               loop 0 v rng)
+  -- loop 0 (MV.generate len id)
+ where 
+  loop n vec g | n == len  = return vec
+	       | otherwise = do 
+    let (offset,g') = randomR (0, len - n - 1) g
+--    MV.unsafeSwap vec n 
+    MV.swap vec n (n + offset)
+    loop (n+1) vec g'
 
