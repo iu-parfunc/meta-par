@@ -25,9 +25,7 @@ import Control.Monad (liftM)
 import Control.Monad.Par.Meta.HotVar.IORef
 import Control.Exception (catch, throw, SomeException)
 
-import qualified Network.Transport     as T
-import qualified Network.Transport.TCP as TCP
-import qualified Network.Transport.Pipes as PT
+import qualified Control.Parallel.MPI.Simple as MP
 
 import System.Random (randomIO)
 import System.IO (stderr)
@@ -42,16 +40,10 @@ import GHC.Conc
 --   given only an indication of master or slave.  Notably, it is told
 --   nothing about WHICH slave is being instantiated and must
 --   determine that on its own.
-data WhichTransport = 
-    TCP 
-  | Pipes 
---  | MPI 
-  | Custom (Rem.InitMode -> IO T.Transport)
+data WhichTransport = MPI 
 
 instance Show WhichTransport where
-  show TCP = "TCP"
-  show Pipes = "Pipes"
-  show (Custom _) = "<CustomTransport>"
+  show MPI = "MPI"
 
 --------------------------------------------------------------------------------
 -- Init and Steal actions:
@@ -59,17 +51,7 @@ instance Show WhichTransport where
 masterInitAction metadata trans = Single.initAction <> IA ia
   where
     ia sa scheds = do
-        env <- getEnvironment
-        host <- Rem.hostName 
-	ml <- case lookup "MACHINE_LIST" env of 
-	       Just str -> return (words str)
-	       Nothing -> 
-		 case lookup "MACHINE_LIST_FILE" env of 
-		   Just fl -> liftM words $ readFile fl
-  	  	   Nothing -> do BS.putStrLn$BS.pack$ "WARNING: Remote resource: Expected to find machine list in "++
-			                              "env var MACHINE_LIST or file name in MACHINE_LIST_FILE."
-                                 return [host]
-        runIA (Rem.initAction metadata trans (Rem.Master$ map BS.pack ml)) sa scheds
+        runIA (Rem.initAction metadata trans Rem.Master) sa scheds
 
 slaveInitAction metadata trans =
   mconcat [ Single.initAction
@@ -90,7 +72,7 @@ sa = mconcat [ Single.stealAction
 -- Running and shutting down the distributed Par monad:
 
 -- The default Transport is TCP:
-runParDist mt = runParDistWithTransport mt TCP
+runParDist mt = runParDistWithTransport mt MPI
 
 runParDistWithTransport metadata trans comp = 
    do dbgTaggedMsg 1$ BS.pack$ "Initializing distributed Par monad with transport: "++ show trans
@@ -104,7 +86,7 @@ runParDistWithTransport metadata trans comp =
 -- Could have this for when global initialization has already happened:
 -- runParDistNested = runMetaParIO (ia Nothing) sa
 
-runParSlave meta = runParSlaveWithTransport meta TCP
+runParSlave meta = runParSlaveWithTransport meta MPI
 
 runParSlaveWithTransport metadata trans = do
   dbgTaggedMsg 2 (BS.pack "runParSlave invoked.")
@@ -125,47 +107,30 @@ shutdownDist = do
    uniqueTok <- randomIO
    Rem.initiateShutdown uniqueTok
    Rem.waitForShutdown  uniqueTok
+   MP.finalize
 
 --------------------------------------------------------------------------------
 -- Transport-related inititialization:
 --------------------------------------------------------------------------------
 
 pickTrans trans = 
-     case trans of 
-       TCP   -> initTCP
-       Pipes -> initPipes
---       MPI   ->
-       Custom fn -> fn
+  case trans of 
+    MPI   -> \_ -> do
+      case MP.Initialized of
+        True -> return ()
+        False -> MP.init
+      rank <- commRank commWorld
+      size <- commSize commWorld
+      return (rank, size)
 
-initTCP :: Rem.InitMode -> IO T.Transport
-initTCP mode = do 
-    host <- Rem.hostName        
---    TCP.mkTransport $ TCP.TCPConfig T.defaultHints (BS.unpack host) control_port
-    case mode of 
-      Rem.Slave   -> do port <- breakSymmetry
-                        TCP.mkTransport $ TCP.TCPConfig T.defaultHints host (show port)
-      (Rem.Master _) -> TCP.mkTransport $ TCP.TCPConfig T.defaultHints host (show control_port)
+parRole :: IO String
+parRole = do
+  if MP.Initialized
+  then rank <- commRank commWorld
+  else do
+    MP.init
+    rank <- commRank commWorld
 
-
-initPipes :: Rem.InitMode -> IO T.Transport
-initPipes _ = PT.mkTransport
-
--- TODO: Make this configurable:
-control_port :: Int
-control_port = min_port
-
-work_base_port :: Int
-work_base_port = min_port + 1 
-
-min_port = 11000
-max_port = 65535
-
-breakSymmetry :: IO Int
-breakSymmetry =
-  do mypid <- getProcessID
-     -- Use the PID to break symmetry between multiple slaves on the same machine:
-     let port  = work_base_port + fromIntegral mypid
-	 port' = if port > max_port
-                 then (port `mod` (max_port - min_port)) + min_port
-		 else port
-     return port'
+  case rank of
+    0 -> return "master"
+    _ -> return "slave"
