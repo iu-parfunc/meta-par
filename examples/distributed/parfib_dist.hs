@@ -4,7 +4,7 @@
 import Data.Int (Int64)
 import System.Environment (getArgs)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Par.Meta.Dist (longSpawn, Par, get, shutdownDist, WhichTransport(Pipes,TCP),
+import Control.Monad.Par.Meta.Dist (longSpawn, Par, get, shutdownDist, WhichTransport(MPI),
 				   runParDistWithTransport, runParSlaveWithTransport)
 -- Tweaked version of CloudHaskell's closures:
 import Remote2.Call (mkClosureRec, remotable)
@@ -52,29 +52,25 @@ remotable ['parfib1]
 
 main = do 
     args <- getArgs
-    let (version, trans_, size, cutoff) = case args of 
-            []        -> ("master", "pipes", 10, 1)
-            [v]       -> (v,        "pipes", 10, 1)
-            [v,t]     -> (v,         t,      10, 1)
-            [v,t,n]   -> (v,         t,  read n, 1)
-            [v,t,n,c] -> (v,         t,  read n, read c)
-        trans = parse trans_
-        parse "tcp"   = TCP
-	parse "pipes" = Pipes
+    let (size, cutoff) = case args of 
+            []        -> (10, 1)
+            [n]   -> (read n, 1)
+            [n,c] -> (read n, read c)
 
     putStr$ "Running parfib with settings: "
-    putStrLn$ show (version, trans_, size, cutoff)
+    putStrLn$ show ("mpi", size, cutoff)
 
-    case version of 
-        "slave" -> runParSlaveWithTransport [__remoteCallMetaData] trans
+    role <- parRole
+    case role of 
+        "slave" -> runParSlaveWithTransport [__remoteCallMetaData] MPI
         "master" -> do 
 		       putStrLn "Using non-thresholded version:"
-		       ans <- (runParDistWithTransport [__remoteCallMetaData] trans
+		       ans <- (runParDistWithTransport [__remoteCallMetaData] MPI
 			       (parfib1 size) :: IO FibType)
 		       putStrLn $ "Final answer: " ++ show ans
-		       putStrLn $ "Calling SHUTDOWN..."
-                       shutdownDist
-		       putStrLn $ "... returned from shutdown, apparently successful."
 
         str -> error$"Unhandled mode: " ++ str
+    putStrLn $ "Calling SHUTDOWN..."
+    shutdownDist
+    putStrLn $ "... returned from shutdown, apparently successful."
 

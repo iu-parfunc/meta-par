@@ -172,23 +172,19 @@ mandelCheck als max_col max_depth = loop 0 als 0
  loop2 i j (h:t) !sum | h == max_depth = loop2 i (j+1) t (sum + i*max_col + j)
 		      | otherwise      = loop2 i (j+1) t  sum
 	      
-main = do role : args <- getArgs
+main = do args <- getArgs
 
-          let (transport, x,y,depth) = 
+          let (x,y,depth) = 
 		case args of
-		 []      -> ("pipes",3,3,3)
-		 [trans] -> (trans,  3,3,3)
-		 [trans,x,y,depth] -> 
-		       (trans,read x, read y, read depth)
+		 []      -> (3,3,3)
+		 [x,y,depth] -> 
+		       (read x, read y, read depth)
 
-          let trans = case transport of 
-		        "tcp" -> TCP 
-			"pipes" -> Pipes
-
+          role <- parRole
           case role of 
-	    "slave" -> runParSlaveWithTransport [__remoteCallMetaData] trans
+	    "slave" -> runParSlaveWithTransport [__remoteCallMetaData] MPI
 	    "master" -> do 
-			   ls <- runParDistWithTransport [__remoteCallMetaData] trans
+			   ls <- runParDistWithTransport [__remoteCallMetaData] MPI
 			                                 (simple x y depth)
 #ifdef WRITE_IMAGE
 			   writePng "mandel_image.png" (makeImage (fromIntegral x) (fromIntegral y) depth ls)
