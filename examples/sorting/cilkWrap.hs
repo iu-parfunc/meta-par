@@ -4,13 +4,11 @@ import Foreign
 import Foreign.C.Types
 import System.Environment (getArgs)
 import System.Random
-import Data.List
 import System.CPUTime (getCPUTime)
 import Text.Printf
 
-import qualified Data.Vector.Unboxed as V
-import qualified Data.Vector.Unboxed.Mutable as MV
-import Control.Exception
+import qualified Data.Vector.Storable as V
+import qualified Data.Vector.Storable.Mutable as MS
 
 foreign import ccall unsafe "wrap_cilksort"
   c_cilksort ::  Ptr CLong -> Ptr CLong -> CLong -> IO CLong
@@ -39,12 +37,19 @@ main =
 
      seed <- newStdGen
 
-     let a = randomList (fromIntegral size) seed
-         b = [1..size]
-       in
-        withArray a $ \pa ->
-        withArray b $ \pb ->
-        runCilkSort' (castPtr pa) (castPtr pb) size runs
+     let v = randomPermutation (fromIntegral size) seed
+         t = randomPermutation (fromIntegral size) seed
+
+     mutv <- V.thaw v
+     mutt <- V.thaw t
+
+     MS.unsafeWith mutv $ \vptr ->
+        MS.unsafeWith mutt $ \tptr ->
+        runCilkSort' (castPtr vptr) (castPtr tptr) size runs
+
+     -- for later use, do this:
+     -- v' <- V.unsafeFreeze mutv
+     -- t' <- V.unsafeFreeze mutt
 
 runCilkSort :: CLong -> Int -> IO ()
 runCilkSort _ 0 = return ()
@@ -60,9 +65,6 @@ runCilkSort' xs ys sz n = do
   putStrLn $ "ran in " ++ show ticks ++ " ticks"
   runCilkSort' xs ys sz (n - 1)
 
-randomList :: Int -> StdGen -> [Int]
-randomList n = take n . unfoldr (Just . random)
-
 -- Create a vector containing the numbers [0,N) in random order.
 randomPermutation :: Int -> StdGen -> V.Vector Int
 randomPermutation len rng =
@@ -75,6 +77,6 @@ randomPermutation len rng =
 	       | otherwise = do
     let (offset,g') = randomR (0, len - n - 1) g
 --    MV.unsafeSwap vec n
-    MV.swap vec n (n + offset)
+    MS.swap vec n (n + offset)
     loop (n+1) vec g'
 
