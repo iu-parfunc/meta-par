@@ -21,10 +21,11 @@ import System.Environment (getEnvironment)
 import Data.Char (ord)
 import Data.List (lookup)
 import Data.Monoid (mconcat, (<>))
-import Control.Monad (liftM)
+import Control.Monad (liftM, unless)
 import Control.Monad.Par.Meta.HotVar.IORef
 import Control.Exception (catch, throw, SomeException)
 
+import Control.Parallel.MPI.Simple (commRank, commSize, commWorld)
 import qualified Control.Parallel.MPI.Simple as MP
 
 import System.Random (randomIO)
@@ -107,7 +108,8 @@ shutdownDist = do
    uniqueTok <- randomIO
    Rem.initiateShutdown uniqueTok
    Rem.waitForShutdown  uniqueTok
-   MP.finalize
+   finalized <- MP.finalized 
+   unless finalized $ MP.finalize
 
 --------------------------------------------------------------------------------
 -- Transport-related inititialization:
@@ -116,21 +118,17 @@ shutdownDist = do
 pickTrans trans = 
   case trans of 
     MPI   -> \_ -> do
-      case MP.Initialized of
-        True -> return ()
-        False -> MP.init
+      initialized <- MP.initialized
+      unless initialized $ MP.init
       rank <- commRank commWorld
       size <- commSize commWorld
       return (rank, size)
 
 parRole :: IO String
 parRole = do
-  if MP.Initialized
-  then rank <- commRank commWorld
-  else do
-    MP.init
-    rank <- commRank commWorld
-
+  initialized <- MP.initialized
+  unless initialized $ MP.init
+  rank <- commRank commWorld
   case rank of
     0 -> return "master"
     _ -> return "slave"

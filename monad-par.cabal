@@ -158,6 +158,7 @@ Library
                , binary
                , cereal >= 0.3
                , bytestring >= 0.9
+               , haskell-mpi >= 1.2.0
                 -- AList now depends on binary/cereal.
   if !flag(NoGPU) {
     Build-depends: accelerate >= 0.9.0.1

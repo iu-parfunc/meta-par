@@ -15,7 +15,6 @@ module Control.Monad.Par.Meta.Resources.Remote
     initiateShutdown, waitForShutdown, 
     longSpawn, 
     InitMode(..),
-    hostName,
     globalRPCMetadata
   )  
  where
@@ -26,7 +25,7 @@ import Control.Concurrent     (myThreadId, threadDelay, writeChan, readChan, new
 			       forkOS, threadCapability, ThreadId)
 import Control.DeepSeq        (NFData)
 import Control.Exception      (catch, SomeException)
-import Control.Monad          (forM, forM_, when, unless)
+import Control.Monad          (forM, forM_, when, unless, liftM)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Par.Meta.HotVar.IORef
 import Data.Typeable          (Typeable)
@@ -34,7 +33,7 @@ import Data.IORef             (writeIORef, readIORef, newIORef, IORef)
 import qualified Data.IntMap as IntMap
 import qualified Data.Map    as M
 import Data.Int               (Int64)
-import Data.Word              (Word8)
+import Data.Word              (Word8, Word32)
 import Data.Maybe             (fromMaybe)
 import Data.Char              (isSpace)
 import qualified Data.ByteString.Char8 as BS
@@ -59,6 +58,7 @@ import Control.Monad.Par.Meta.Resources.Debugging
    (dbg, dbgTaggedMsg, dbgDelay, dbgCharMsg, taggedmsg_global_mode)
 import Control.Monad.Par.Meta (forkWithExceptions, new, put_, Sched(Sched,no,ivarUID),
 			       IVar, Par, InitAction(IA), StealAction(SA))
+import Control.Parallel.MPI.Simple (commWorld, anySource, anyTag, fromRank, toRank)
 import qualified Control.Parallel.MPI.Simple     as MP
 import Remote2.Closure  (Closure(Closure))
 import Remote2.Encoding (Payload, Serializable, serialDecodePure, getPayloadContent, getPayloadType)
@@ -100,7 +100,7 @@ data Message =
    ----------------------------------------
      -- The master grants permission to start stealing.
      -- No one had better send the master steal requests before this goes out!!
-   | StartStealing
+   StartStealing
      
    | ShutDown !Token -- A message from master to slave, "exit immediately":
    | ShutDownACK    -- "I heard you, shutting down gracefully"
@@ -225,7 +225,7 @@ forkDaemon name action =
 
 -- | Send to a particular node in the peerTable:
 sendTo :: NodeID -> BS.ByteString -> IO ()
-sendTo ndid msg = MP.sendBS commWorld ndid 0 [msg]
+sendTo ndid msg = MP.sendBS commWorld ndid 0 msg
 
 -- | This assumes a "Payload closure" as produced by makePayloadClosure below.
 deClosure :: Closure Payload -> IO (Par Payload)
@@ -317,7 +317,7 @@ instance Show Payload where
 -- Main scheduler components (init & steal)
 -----------------------------------------------------------------------------------
 
-initAction :: [Reg.RemoteCallMetaData] -> (InitMode -> IO (MP.Rank)) -> InitMode -> InitAction
+initAction :: [Reg.RemoteCallMetaData] -> (InitMode -> IO (MP.Rank, Int)) -> InitMode -> InitAction
   -- For now we bake in assumptions about being able to SSH to the machine_list:
 
 initAction metadata initTransport Master = IA ia
@@ -414,9 +414,10 @@ masterShutdown token = do
    myid <- readIORef myNodeID
    size <- readIORef worldSize
    ----------------------------------------  
-   forM_ [1..size-1] $ \ndid -> 
-     unless (ndid == myid) $ do 
-       sendTo ndid (encode$ ShutDown token)
+   forM_ [1..size-1] $ \ndid -> do
+     let nid = toRank ndid
+     unless (nid == myid) $ do 
+       sendTo nid (encode$ ShutDown token)
    ----------------------------------------  
 #ifdef SHUTDOWNACK
    dbgTaggedMsg 1$ "Waiting for ACKs that all slaves shut down..."
@@ -473,9 +474,8 @@ stealAction = SA sa
         Nothing -> raidPeer
 
     pickVictim myid = do
-      pt   <- readHotVar peerTable
-      let len = V.length pt
-          loop = do 
+      len <- readHotVar worldSize
+      let loop = do 
             n :: Int <- randomIO 
  	    let ind = n `mod` len
  	    if ind == myid 
@@ -485,11 +485,11 @@ stealAction = SA sa
 
     raidPeer = do
       myid <- readHotVar myNodeID
-      ind  <- pickVictim myid
+      ind  <- pickVictim (fromRank myid :: Int)
       (_,str) <- measureIVarTable
       dbgTaggedMsg 4$ ""+++ showNodeID myid+++" Attempting steal from Node ID "
                       +++showNodeID ind+++"  "+++ str
-      sendTo ind (encode$ StealRequest myid)
+      sendTo (toRank ind) (encode$ StealRequest myid)
 
       -- We have nothing to return immediately, but hopefully work will come back later.
       return Nothing
@@ -551,7 +551,7 @@ receiveDaemon schedMap =
    dbgTaggedMsg 4$ "[rcvdmn] About to do blocking rcv of next msg... "+++ outstanding
 
    -- Do a blocking receive to process the next message:
-   bss  <- if False
+   (bs, _)  <- if False
 	   then Control.Exception.catch 
                       (MP.recvBS commWorld anySource anyTag)
 		      (\ (e::SomeException) -> do
@@ -559,9 +559,9 @@ receiveDaemon schedMap =
 		       exitSuccess
 		      )
 	   else MP.recvBS commWorld anySource anyTag
-   dbgTaggedMsg 4$ "[rcvdmn] Received "+++ sho (BS.length (BS.concat bss)) +++" byte message..."
+   dbgTaggedMsg 4$ "[rcvdmn] Received "+++ sho (BS.length bs) +++" byte message..."
 
-   case decodeMsg (BS.concat bss) of 
+   case decodeMsg bs of 
      StealRequest ndid -> do
        dbgCharMsg 3 "!" ("[rcvdmn] Received StealRequest from: "+++ showNodeID ndid)
 
@@ -640,6 +640,9 @@ longSpawn  :: (NFData a, Serializable a)
 
 #endif
 
+instance Serialize MP.Rank where
+  put i   = Ser.put (fromIntegral i :: Word32)
+  get     = liftM fromIntegral (Ser.get :: Ser.Get Word32)
 
 #if 0 
 -- Option 1: Use the GHC Generics mechanism to derive these:
