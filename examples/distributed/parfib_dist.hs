@@ -5,7 +5,7 @@ import Data.Int (Int64)
 import System.Environment (getArgs)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Par.Meta.Dist (longSpawn, Par, get, shutdownDist, WhichTransport(MPI),
-				   runParDistWithTransport, runParSlaveWithTransport)
+				   runParDistWithTransport, runParSlaveWithTransport, initMPI)
 -- Tweaked version of CloudHaskell's closures:
 import Remote2.Call (mkClosureRec, remotable)
 
@@ -25,9 +25,9 @@ parfib1 :: FibType -> Par FibType
 parfib1 n | n < 2 = return 1
 parfib1 n = do 
     liftIO $ do 
-       mypid <- getProcessID
-       mytid <- myThreadId
-       host  <- hostName
+--       mypid <- getProcessID
+--       mytid <- myThreadId
+--       host  <- hostName
 --       let host = ""
 #if 1
 --       putStrLn $ " [host "++host++" pid "++show mypid++" "++show mytid++"] PARFIB "++show n
@@ -57,20 +57,19 @@ main = do
             [n]   -> (read n, 1)
             [n,c] -> (read n, read c)
 
-    putStr$ "Running parfib with settings: "
-    putStrLn$ show ("mpi", size, cutoff)
-
-    role <- parRole
+    role <- initMPI
     case role of 
         "slave" -> runParSlaveWithTransport [__remoteCallMetaData] MPI
         "master" -> do 
+                       putStr$ "Running parfib with settings: "
+                       putStrLn$ show ("mpi", size, cutoff)
+
 		       putStrLn "Using non-thresholded version:"
 		       ans <- (runParDistWithTransport [__remoteCallMetaData] MPI
 			       (parfib1 size) :: IO FibType)
-		       putStrLn $ "Final answer: " ++ show ans
+                       putStrLn $ "Final answer: " ++ show ans
+                       putStrLn $ "Calling SHUTDOWN..."
+                       shutdownDist
+                       putStrLn $ "... returned from shutdown, apparently successful."
 
         str -> error$"Unhandled mode: " ++ str
-    putStrLn $ "Calling SHUTDOWN..."
-    shutdownDist
-    putStrLn $ "... returned from shutdown, apparently successful."
-

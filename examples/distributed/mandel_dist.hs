@@ -180,7 +180,7 @@ main = do args <- getArgs
 		 [x,y,depth] -> 
 		       (read x, read y, read depth)
 
-          role <- parRole
+          role <- initMPI
           case role of 
 	    "slave" -> runParSlaveWithTransport [__remoteCallMetaData] MPI
 	    "master" -> do 
