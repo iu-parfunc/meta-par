@@ -3,7 +3,7 @@
 # This is a default set of benchmarks reasonable for a powerful four core desktop.
 # For example on my machine this takes 15.5 minutes to do 3 trials from 1-8 threads.
 #
-# Version: desktop 1.1
+# Version: desktop 1.2
 # 
 # I'm attempting to keep track of changes to this config with the above.
 # Note that changes to the benchmarks themselves also require changing
@@ -19,22 +19,24 @@ blackscholes  futures 10000 15000000
 nbody         ivars  13000
 
 # mandel 300 300 4000
-mandel        futures 2000 2000 3000000
+# mandel        futures 2000 2000 3000000
+mandel futures 1024 1024 256
 
 coins         futures 8 1250
-queens        futures 14
+# queens        futures 14
 
 # These don't match the naming convention at the moment.
 matmult/MatMult   futures 768 0 64
+
 sumeuler/sumeuler futures 38 8000 100
 
-sorting/mergesort futures 19 
+sorting/mergesort futures 24 8192
 
 # binomial lattice?
 
 
 
-
+# ------------------------------------------------------------
 # TODO: Get distributed benchmarks integrated in here:
 #       Although these should probably go in a separate file.
 # ------------------------------------------------------------
@@ -54,9 +56,6 @@ sorting/mergesort futures 19
 # minimax/minimax futures nested ? ? 
 # minimax/minimax futures monad  ? ? 
 
-# These don't match the naming convention at the moment.
-matmult/MatMult   futures 768 0 64
-sumeuler/sumeuler futures 38 8000 100
 
 # We can measure parfib separately... it shouldn't be part of our
 # benchmark suite.

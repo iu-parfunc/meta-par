@@ -2,6 +2,7 @@ Name:                monad-par
 Version:             0.2.2
 Synopsis:            A library for parallel programming based on a monad
 
+
 -- Version history:
 --  0.1      : First release
 --  0.1.0.1  : 
@@ -35,9 +36,8 @@ Description:         This library offers an alternative parallel programming
                      data structures, and other added capabilities
                      layered on top of the 'Par' monad.
 
-                       * Foo
-                       * Bar
-
+                       * Finish These
+                       * Module Descriptions
 
 Homepage:            https://github.com/simonmar/monad-par
 License:             BSD3
@@ -50,9 +50,10 @@ Category:            Control,Parallelism,Monads
 Build-type:          Simple
 Cabal-version:       >=1.8
 
+
+
 extra-source-files:
      examples/benchlist.txt
-     examples/benchmark.sh
      examples/blackscholes_data.hs
      examples/blackscholes.hs
      examples/cholesky.hs
@@ -123,6 +124,17 @@ Library
                  -- It only supports Futures, not full IVars:
                  , Control.Monad.Par.Scheds.Sparks
 
+                 -- Meta scheduler and friends
+                 , Control.Monad.Par.Meta
+                 , Control.Monad.Par.Meta.SharedMemoryOnly
+                 , Control.Monad.Par.Meta.Resources.SharedMemory
+
+  if !flag(NoGPU) {
+     Exposed-modules: 
+                   Control.Monad.Par.Meta.SharedMemoryAccelerate
+                 , Control.Monad.Par.Meta.Resources.Accelerate
+                 , Data.Vector.Algorithms.CUDA.Merge
+  }
 
   Build-depends: base >= 4 && < 5
 -- The parallel package currently requires deepseq 1.1:
@@ -135,19 +147,44 @@ Library
                , split >= 0.1.2.3
                , carray >= 0.1.5
                , array >= 0.3
-               , random >= 1.0.0
+               , random >= 1.0.0.0
+               , mwc-random >= 0.11
                , transformers >= 0.2.2.0
                , vector
                , containers
                , mtl >= 2.0.1.0
                , parallel >= 3.1
                , abstract-deque >= 0.1.4
+               , binary
+               , cereal >= 0.3
+               , bytestring >= 0.9
+                -- AList now depends on binary/cereal.
+  if !flag(NoGPU) {
+    Build-depends: accelerate >= 0.9.0.1
+                 , cuda >= 0.4.1
+  }
+  if !flag(NoDist) {
+    Build-depends: network
+--                 , cereal-derive
+                 , directory >= 1.1
+                 , ghc-prim
+                 , network-transport
+                 , network-transport-pipes
+                 , process >= 1.1
+                 , syb >= 0.3
+                 , unix >= 2.5
+
+    Exposed-modules: Control.Monad.Par.Meta.Dist,
+                     Control.Monad.Par.Meta.Resources.Remote
+  }
 --               , chaselev-deque
 --               , hashtables >= 1.0.0.0
   -- NOTE!  These dependencies DO NOT include all dependencies required
   -- by the examples/benchmarks.  Run "make deps" in the examples
   -- directory.
-
+  c-sources:       cbits/pin.c
+  include-dirs:    include
+  includes:        pin.h
   ghc-options: -O2
   Other-modules:
                ------------------------------------------------------------
@@ -158,13 +195,16 @@ Library
                  Control.Monad.Par.Scheds.Direct
 
                -- Strawman scheduler that forks IO threads:
-               , Control.Monad.Par.Scheds.ContFree
+--               , Control.Monad.Par.Scheds.ContFree
 
                -- Internal logging framework:
                , Control.Monad.Par.Logging
 
                -- Serial Elision is currently experimental:
                , Control.Monad.Par.Scheds.SerialElision
+
+               -- HotVar implementations
+               , Control.Monad.Par.Meta.HotVar.IORef
 
 
                ------------------------------------------------------------
@@ -205,6 +245,7 @@ Library
                -- Deterministic RNG should be released as soon as its tested more.
                , Control.Monad.Par.RNG
 
+               , System.Posix.Affinity
 
 Test-Suite test-monad-par
     type:       exitcode-stdio-1.0
@@ -213,6 +254,16 @@ Test-Suite test-monad-par
     build-depends: base >= 4 && < 5
                  , array >= 0.3
                  , deepseq >= 1.2
+                 , binary
                  , QuickCheck, HUnit, time
                  , test-framework, test-framework-th
                  , test-framework-hunit, test-framework-quickcheck2
+
+
+Flag NoGPU
+  Description: Turn of GPU support and therefore accelerate dependencies.
+  Default:     True
+
+Flag NoDist
+  Description: Turn of Distributed support and therefore certain dependencies.
+  Default:     False
