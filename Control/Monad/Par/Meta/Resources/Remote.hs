@@ -22,7 +22,7 @@ module Control.Monad.Par.Meta.Resources.Remote
 import "mtl" Control.Monad.Reader (ask)
 import Control.Applicative    ((<$>))
 import Control.Concurrent     (myThreadId, threadDelay, writeChan, readChan, newChan, Chan,
-			       forkOS, threadCapability, ThreadId)
+			       forkOS, threadCapability, ThreadId, killThread)
 import Control.DeepSeq        (NFData)
 import Control.Exception      (catch, SomeException)
 import Control.Monad          (forM, forM_, when, unless, liftM)
@@ -32,6 +32,8 @@ import Data.Typeable          (Typeable)
 import Data.IORef             (writeIORef, readIORef, newIORef, IORef)
 import qualified Data.IntMap as IntMap
 import qualified Data.Map    as M
+import Data.Set               (Set)
+import qualified Data.Set    as Set
 import Data.Int               (Int64)
 import Data.Word              (Word8, Word32)
 import Data.Maybe             (fromMaybe)
@@ -56,7 +58,7 @@ import System.Random      (randomIO)
 
 import Control.Monad.Par.Meta.Resources.Debugging
    (dbg, dbgTaggedMsg, dbgDelay, dbgCharMsg, taggedmsg_global_mode)
-import Control.Monad.Par.Meta (forkWithExceptions, new, put_, Sched(Sched,no,ivarUID),
+import Control.Monad.Par.Meta (forkWithExceptions, new, put_, Sched(Sched,no,ivarUID,tids),
 			       IVar, Par, InitAction(IA), StealAction(SA))
 import Control.Parallel.MPI.Simple (commWorld, anySource, anyTag, fromRank, toRank)
 import qualified Control.Parallel.MPI.Simple     as MP
@@ -134,7 +136,6 @@ type ParClosure a = (Par a, Closure (Par a))
 
 -- Other temporary toggles:
 -- define SHUTDOWNACK
--- define KILL_WORKERS_ON_SHUTDOWN
 
 
 --------------------------------------------------------------------------------
@@ -254,8 +255,6 @@ errorExit str = do
 -- The idea with this debugging hack is to prevent ANYTHING that could be closing connections:
 #ifdef TMPDBG
    diverge
-#else
-   closeAllConnections
 #endif
    printErr$ "Connections closed, now exiting process."
    exitProcess 1
@@ -270,8 +269,6 @@ exitSuccess = do
    dbgTaggedMsg 1 "  EXITING process with success exit code."
 #ifdef TMPDBG
    diverge
-#else
-   closeAllConnections
 #endif
    dbgTaggedMsg 1 "   (Connections closed, now exiting for real)"
    exitProcess 0
@@ -301,13 +298,11 @@ exitProcess code = do
    -- Option 3: FFI call:
    c_exit code
 
-   putStrLn$ "SHOULD NOT SEE this... process should have exited already."
+   -- putStrLn$ "SHOULD NOT SEE this... process should have exited already."
    return (error "Should not see this.")
 
 errorExitPure :: String -> a
 errorExitPure str = unsafePerformIO$ errorExit str
-
-closeAllConnections = MP.finalize
 
 instance Show Payload where
   show payload = "<type: "++ show (getPayloadType payload) ++", bytes: "
@@ -357,6 +352,7 @@ initAction metadata initTransport Master = IA ia
 initAction metadata initTransport Slave = IA ia
   where
     ia topStealAction schedMap = do 
+     writeIORef taggedmsg_global_mode "_S"
      dbgTaggedMsg 2 "Init slave: creating connection... " 
      
      (myid, size) <- initTransport Slave
@@ -367,7 +363,6 @@ initAction metadata initTransport Slave = IA ia
      writeIORef globalRPCMetadata (Reg.registerCalls metadata)
      dbgTaggedMsg 3$ "RPC metadata initialized."
 
-     writeIORef taggedmsg_global_mode "_S"
      writeIORef myNodeID myid
      writeIORef masterID masterid
      writeIORef worldSize size
@@ -378,7 +373,7 @@ initAction metadata initTransport Slave = IA ia
      
      -- Don't proceed till we get the go-message from the Master:
      msg <- MP.bcastRecv commWorld masterid
-     case decodeMsg (BS.concat msg) of 
+     case decodeMsg msg of 
        StartStealing -> dbgTaggedMsg 1$ "Received 'Go' message from master.  BEGIN STEALING."
        msg           -> errorExit$ "Expecting StartStealing message, received: "++ show msg
 
@@ -398,6 +393,7 @@ initiateShutdown token = do
   myid   <- readIORef myNodeID
   unless master $ errorExit$ "initiateShutdown called on non-master node!!"
   sendTo myid (encode$ ShutDown token)
+
   -- TODO: BLOCK Until shutdown is successful.
 
 -- Block until the shutdown process is successful.
@@ -414,7 +410,7 @@ masterShutdown token = do
    myid <- readIORef myNodeID
    size <- readIORef worldSize
    ----------------------------------------  
-   forM_ [1..size-1] $ \ndid -> do
+   forM_ [0..size-1] $ \ndid -> do
      let nid = toRank ndid
      unless (nid == myid) $ do 
        sendTo nid (encode$ ShutDown token)
@@ -423,7 +419,7 @@ masterShutdown token = do
    dbgTaggedMsg 1$ "Waiting for ACKs that all slaves shut down..."
    let loop 0 = return ()
        loop n = do msg <- MP.recvBS commWorld n anyTag
-		   case decodeMsg (BS.concat msg) of
+		   case decodeMsg msg of
 		     ShutDownACK -> loop (n-1)
 		     other -> do 
                                  dbgTaggedMsg 4$ "Warning: received other msg while trying to shutdown.  Might be ok: "++show other
@@ -440,18 +436,18 @@ workerShutdown :: (IntMap.IntMap Sched) -> IO ()
 workerShutdown schedMap = do
    dbgTaggedMsg 1$ "Shutdown initiated for worker."
 #ifdef SHUTDOWNACK
-   myid <- readIORef masterID
-   sendTo myid (encode ShutDownACK)
+   mid <- readIORef masterID
+   sendTo mid (encode ShutDownACK)
 #endif
    -- Because we are completely shutting down the process we are at
    -- liberty to kill all worker threads here:
-#ifdef KILL_WORKERS_ON_SHUTDOWN
    forM_ (IntMap.elems schedMap) $ \ Sched{tids} -> do
 --     set <- readHotVar tids
      set <- modifyHotVar tids (\set -> (Set.empty,set))
      mapM_ killThread (Set.toList set) 
    dbgTaggedMsg 1$ "  Killed all Par worker threads."
-#endif
+   
+   MP.finalize
    exitSuccess
 
 -- Kill own pid:
@@ -622,9 +618,7 @@ receiveDaemon schedMap =
        master    <- readHotVar isMaster
        schedMap' <- readHotVar schedMap
        if master then masterShutdown token
-		 else workerShutdown schedMap'
-
-
+                 else workerShutdown schedMap'
 
 
 --------------------------------------------------------------------------------

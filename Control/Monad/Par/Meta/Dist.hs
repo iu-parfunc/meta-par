@@ -5,6 +5,7 @@ module Control.Monad.Par.Meta.Dist
   , runParDistWithTransport
   , runParSlaveWithTransport
   , shutdownDist
+  , initMPI
   , Rem.longSpawn
   , Rem.globalRPCMetadata
   , WhichTransport(..)
@@ -108,8 +109,7 @@ shutdownDist = do
    uniqueTok <- randomIO
    Rem.initiateShutdown uniqueTok
    Rem.waitForShutdown  uniqueTok
-   finalized <- MP.finalized 
-   unless finalized $ MP.finalize
+   MP.finalize
 
 --------------------------------------------------------------------------------
 -- Transport-related inititialization:
@@ -118,16 +118,13 @@ shutdownDist = do
 pickTrans trans = 
   case trans of 
     MPI   -> \_ -> do
-      initialized <- MP.initialized
-      unless initialized $ MP.init
       rank <- commRank commWorld
       size <- commSize commWorld
       return (rank, size)
 
-parRole :: IO String
-parRole = do
-  initialized <- MP.initialized
-  unless initialized $ MP.init
+initMPI :: IO String
+initMPI = do
+  MP.initThread MP.Serialized
   rank <- commRank commWorld
   case rank of
     0 -> return "master"
