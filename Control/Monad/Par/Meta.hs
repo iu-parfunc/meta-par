@@ -33,7 +33,7 @@ import Control.Monad
 import "mtl" Control.Monad.Cont (ContT(..), MonadCont, callCC, runContT)
 import "mtl" Control.Monad.Reader (ReaderT, MonadReader, runReaderT, ask)
 import Control.Monad.IO.Class
-import Control.Exception (catch, throwTo, SomeException)
+import Control.Exception (catch, throwTo, SomeException, fromException, AsyncException(ThreadKilled))
 import GHC.Conc
 
 import Data.Concurrent.Deque.Class (WSDeque)
@@ -151,8 +151,12 @@ forkWithExceptions forkit descr action = do
    forkit $ 
       Control.Exception.catch action
 	 (\ e -> do
-	  BS.hPutStrLn stderr $ BS.pack $ "Exception inside child thread "++show descr++": "++show e
-	  throwTo parent (e::SomeException)
+          case fromException e of 
+            Just ThreadKilled ->
+              return ()
+            _ -> do
+              BS.hPutStrLn stderr $ BS.pack $ "Exception inside child thread "++show descr++": "++show e
+              throwTo parent (e::SomeException)
 	 )
 
 {-# INLINE ensurePinned #-}
