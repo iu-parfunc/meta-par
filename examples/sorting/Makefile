@@ -1,7 +1,33 @@
-GHC=ghc
-CC=icc
+ifeq ($(GHC),)
+  GHC=ghc
+endif
 
-all: cilkWrap 
+# enable ICC with this:
+# module load intel/composer_xe_2011_sp1.7.256-intel64
+
+ifeq ($(CC),gcc)
+  CC=gcc
+  LDFLAGS=-lm 
+else
+  CC=icc
+  LDFLAGS=-lm -lcilkrts -lirc -limf
+endif
+
+# Hack to control which CPU sort gets called at the bottom of the div/conq.
+# Choices are:
+#
+# * CPU_SORT=HASKELL_SEQ for vector-algorithms
+# * CPU_SORT=CILK_SEQ for the cilk sequential quicksort
+# * CPU_SORT=CILK_PAR for the cilk parallel runtime
+
+ifeq ($(CPU_SORT),)
+  CPU_SORT=HASKELL_SEQ
+endif
+
+all: mergesort cilkWrap
+
+mergesort: mergesort.hs cilksort-nomain.o
+	$(GHC) --make -O2 -rtsopts -threaded $^ $(LDFLAGS) -D$(CPU_SORT) -o $@
 
 cilksort: cilksort.o
 	$(CC) -Wall $^ -o $@
@@ -13,10 +39,10 @@ cilksort.o: cilksort.c
 	$(CC) -Wall -DUSE_MAIN=1 -c $^ -o $@
 
 cilkWrap: cilkWrap.hs cilksort-nomain.o
-	$(GHC) --make $^ -lm -lcilkrts -lirc -limf -o $@
+	$(GHC) --make -O2 $^ $(LDFLAGS) -o $@
 
 clean:
-	rm -f cilkWrap cilksort *.hi *.o
+	rm -f cilkWrap mergesort cilksort *.hi *.o
 
 .PHONY: clean
 

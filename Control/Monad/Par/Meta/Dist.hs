@@ -50,25 +50,17 @@ instance Show WhichTransport where
 --------------------------------------------------------------------------------
 -- Init and Steal actions:
 
-masterInitAction metadata trans = Single.initAction <> IA ia
-  where
-    ia sa scheds = do
-        runIA (Rem.initAction metadata trans Rem.Master) sa scheds
-
-slaveInitAction metadata trans =
-  mconcat [ Single.initAction
-          , Rem.initAction metadata trans Rem.Slave 
-          , Bkoff.initAction
+masterResource metadata trans = 
+  mconcat [ Single.mkResource
+          , Rem.mkMasterResource metadata trans
+          , Bkoff.mkResource 1000 (100*1000)
           ]
 
-sa :: StealAction
-sa = mconcat [ Single.stealAction 
-             , Rem.stealAction    
-               -- Start actually sleeping at 1ms and go up to 100ms:
-             , Bkoff.mkStealAction 1000 (100*1000)
-               -- Testing: A CONSTANT backoff:
---             , Bkoff.mkStealAction 1 1 
-             ]
+slaveResource metadata trans =
+  mconcat [ Single.mkResource
+          , Rem.mkSlaveResource metadata trans
+          , Bkoff.mkResource 1000 (100*1000)
+          ]
 
 --------------------------------------------------------------------------------
 -- Running and shutting down the distributed Par monad:
@@ -80,7 +72,7 @@ runParDistWithTransport metadata trans comp =
    do dbgTaggedMsg 1$ BS.pack$ "Initializing distributed Par monad with transport: "++ show trans
       Control.Exception.catch main hndlr 
  where 
-   main = runMetaParIO (masterInitAction metadata (pickTrans trans)) sa comp
+   main = runMetaParIO (masterResource metadata (pickTrans trans)) comp
    hndlr e = do	BS.hPutStrLn stderr $ BS.pack $ "Exception inside runParDist: "++show e
 		throw (e::SomeException)
 
@@ -95,10 +87,7 @@ runParSlaveWithTransport metadata trans = do
 
   -- We run a par computation that will not terminate to get the
   -- system up, running, and work-stealing:
-  runMetaParIO (slaveInitAction metadata (pickTrans trans))
-	       (SA $ \ x y -> do res <- runSA sa x y; 
---		                 threadDelay (10 * 1000);
-	                         return res)
+  runMetaParIO (slaveResource metadata (pickTrans trans))
 	       (new >>= get)
 
   fail "RETURNED FROM runMetaParIO - THIS SHOULD NOT HAPPEN"

@@ -54,13 +54,21 @@
  * log factor in the critical path (left as homework).
  */
 
+#ifdef __INTEL_COMPILER
 #include <cilk/cilk.h>
+#else
+#define cilk_sync
+#define cilk_spawn
+#endif
+
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/time.h>
 
-typedef long ELM;
+typedef uint32_t ELM;
 
 /* MERGESIZE must be >= 2 */
 #define KILO 1024
@@ -197,6 +205,11 @@ void seqquick(ELM *low, ELM *high)
      }
 
      insertion_sort(low, high);
+}
+
+void wrap_seqquick(ELM *low, long len)
+{
+    seqquick(low, low + len);
 }
 
 void seqmerge(ELM *low1, ELM *high1, ELM *low2, ELM *high2,

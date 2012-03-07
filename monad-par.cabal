@@ -101,6 +101,7 @@ extra-source-files:
      tests/Test.hs
      Control/Monad/Par/Stream.hs
 
+
 Library
   Exposed-modules: 
                  -- The classic, simple monad-par interface:
@@ -128,12 +129,14 @@ Library
                  , Control.Monad.Par.Meta
                  , Control.Monad.Par.Meta.SharedMemoryOnly
                  , Control.Monad.Par.Meta.Resources.SharedMemory
-
+                 , Control.Monad.Par.Meta.Resources.Backoff
   if !flag(NoGPU) {
      Exposed-modules: 
-                   Control.Monad.Par.Meta.SharedMemoryAccelerate
-                 , Control.Monad.Par.Meta.Resources.Accelerate
-                 , Data.Vector.Algorithms.CUDA.Merge
+--                   Control.Monad.Par.Meta.SharedMemoryAccelerate
+--                 , Control.Monad.Par.Meta.Resources.Accelerate
+                   Data.Vector.Algorithms.CUDA.Merge
+                 , Control.Monad.Par.Meta.Resources.CUDAMergeSort
+                 , Control.Monad.Par.Meta.SMPMergeSort
   }
 
   Build-depends: base >= 4 && < 5
@@ -161,8 +164,11 @@ Library
                , haskell-mpi >= 1.2.0
                 -- AList now depends on binary/cereal.
   if !flag(NoGPU) {
-    Build-depends: accelerate >= 0.9.0.1
-                 , cuda >= 0.4.1
+    Build-depends:
+                 --  accelerate >= 0.9.0.1
+                   cuda >= 0.4.1
+                 , vector-algorithms >= 0.5
+    ld-options: /nobackup/afoltzer/NVIDIA_GPU_Computing_SDK/C/src/mergeSort/obj/x86_64/release/mergeSort.cu.o
   }
   if !flag(NoDist) {
     Build-depends: network
@@ -183,9 +189,6 @@ Library
   -- NOTE!  These dependencies DO NOT include all dependencies required
   -- by the examples/benchmarks.  Run "make deps" in the examples
   -- directory.
-  c-sources:       cbits/pin.c
-  include-dirs:    include
-  includes:        pin.h
   ghc-options: -O2
   Other-modules:
                ------------------------------------------------------------
@@ -246,7 +249,21 @@ Library
                -- Deterministic RNG should be released as soon as its tested more.
                , Control.Monad.Par.RNG
 
-               , System.Posix.Affinity
+               , Control.Monad.Par.Meta.Resources.Debugging
+
+  if flag(affinity) {
+      CPP-options: -DAFFINITY
+  }
+
+  if flag(affinity) {
+    Other-modules: System.Posix.Affinity
+  }
+
+  if flag(affinity) {   
+    c-sources:       cbits/pin.c
+    include-dirs:    include
+    includes:        pin.h
+  }
 
 Test-Suite test-monad-par
     type:       exitcode-stdio-1.0
@@ -267,4 +284,8 @@ Flag NoGPU
 
 Flag NoDist
   Description: Turn of Distributed support and therefore certain dependencies.
+  Default:     False
+
+Flag affinity
+  Description: Turn on pinning to CPUs via pthread/linux scheduler calls.
   Default:     False

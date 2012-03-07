@@ -11,11 +11,13 @@
 -- | Resource for Remote execution.
 
 module Control.Monad.Par.Meta.Resources.Remote 
-  ( initAction, stealAction, 
+  ( sharedInit, defaultSteal, 
     initiateShutdown, waitForShutdown, 
     longSpawn, 
     InitMode(..),
-    globalRPCMetadata
+    globalRPCMetadata,
+    mkMasterResource,
+    mkSlaveResource
   )  
  where
 
@@ -25,7 +27,7 @@ import Control.Concurrent     (myThreadId, threadDelay, writeChan, readChan, new
 			       forkOS, threadCapability, ThreadId, killThread)
 import Control.DeepSeq        (NFData)
 import Control.Exception      (catch, SomeException)
-import Control.Monad          (forM, forM_, when, unless, liftM)
+import Control.Monad          (forM, forM_, liftM, when, unless)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Par.Meta.HotVar.IORef
 import Data.Typeable          (Typeable)
@@ -50,6 +52,7 @@ import Data.Serialize (encode, decode, Serialize)
 import qualified Data.Serialize as Ser
 -- import Data.Serialize.Derive (deriveGet, derivePut)
 import GHC.Generics       (Generic)
+import System.Environment (getEnvironment)
 import System.IO          (hFlush, stdout, stderr)
 import System.IO.Unsafe   (unsafePerformIO)
 import System.Process     (readProcess)
@@ -59,7 +62,7 @@ import System.Random      (randomIO)
 import Control.Monad.Par.Meta.Resources.Debugging
    (dbg, dbgTaggedMsg, dbgDelay, dbgCharMsg, taggedmsg_global_mode)
 import Control.Monad.Par.Meta (forkWithExceptions, new, put_, Sched(Sched,no,ivarUID,tids),
-			       IVar, Par, InitAction(IA), StealAction(SA))
+			       IVar, Par, InitAction(..), StealAction(SA), Resource(..))
 import Control.Parallel.MPI.Simple (commWorld, anySource, anyTag, fromRank, toRank)
 import qualified Control.Parallel.MPI.Simple     as MP
 import Remote2.Closure  (Closure(Closure))
@@ -312,10 +315,21 @@ instance Show Payload where
 -- Main scheduler components (init & steal)
 -----------------------------------------------------------------------------------
 
-initAction :: [Reg.RemoteCallMetaData] -> (InitMode -> IO (MP.Rank, Int)) -> InitMode -> InitAction
-  -- For now we bake in assumptions about being able to SSH to the machine_list:
+mkMasterResource :: [Reg.RemoteCallMetaData]
+                 -> (InitMode -> IO (MP.Rank, Int))
+                 -> Resource
+mkMasterResource metadata trans =
+  Resource (sharedInit metadata trans Master) defaultSteal
 
-initAction metadata initTransport Master = IA ia
+mkSlaveResource :: [Reg.RemoteCallMetaData]
+                -> (InitMode -> IO (MP.Rank, Int))
+                -> Resource
+mkSlaveResource metadata trans =
+  Resource (sharedInit metadata trans Slave) defaultSteal
+
+sharedInit :: [Reg.RemoteCallMetaData] -> (InitMode -> IO (MP.Rank, Int)) -> InitMode -> InitAction
+
+sharedInit metadata initTransport Master = IA ia
   where
     ia topStealAction schedMap = do 
      dbgTaggedMsg 2 "Initializing master..."
@@ -349,7 +363,7 @@ initAction metadata initTransport Master = IA ia
      return ()
 
 ------------------------------------------------------------------------------------------
-initAction metadata initTransport Slave = IA ia
+sharedInit metadata initTransport Slave = IA ia
   where
     ia topStealAction schedMap = do 
      writeIORef taggedmsg_global_mode "_S"
@@ -456,8 +470,8 @@ workerShutdown schedMap = do
 
 --------------------------------------------------------------------------------
 
-stealAction :: StealAction
-stealAction = SA sa
+defaultSteal :: StealAction
+defaultSteal = SA sa
   where 
     sa Sched{no} _ = do
       dbgDelay "stealAction"
