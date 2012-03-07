@@ -34,10 +34,10 @@ import Data.Vector.Algorithms.Merge (sort)
 #ifdef PARSCHED 
 import PARSCHED
 #else
-import Control.Monad.Par.Meta.SMPMergeSort
+import Control.Monad.Par
 import Foreign.CUDA.Driver    (initialise)
 import Foreign.CUDA.Runtime.Device (reset)
-#define GPU_ENABLED
+#undef GPU_ENABLED
 #endif
 
 -- Element type being sorted:
@@ -367,6 +367,8 @@ main = do args <- getArgs
                       | mode == "static_blocking"  = staticMergeSort t gpuThi seqsort True
 
           initialise [] -- CUDA initialize.
+#else
+                      | mode == "dynamic" = cpuMergeSort t seqsort
 #endif
 --          g <- getStdGen
 
