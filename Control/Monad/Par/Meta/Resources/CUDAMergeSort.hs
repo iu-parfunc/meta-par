@@ -5,8 +5,7 @@ module Control.Monad.Par.Meta.Resources.CUDAMergeSort (
     initAction
   , stealAction
   , blockingGPUMergeSort
-  , spawnCPUGPUMergeSort
-  , spawnGPUMergeSort
+  , CUDAMergePar(..)
 ) where
 
 import Control.Concurrent
@@ -56,13 +55,13 @@ gpuOnlyQueue = unsafePerformIO R.newQ
 {-# NOINLINE gpuBackstealQueue #-}
 -- | GPU-only queue is pushed to by 'Par' workers on the right, and
 -- popped by the GPU daemon and 'Par' workers on the left.
-gpuBackstealQueue :: ConcQueue (Par (), IO ())
+gpuBackstealQueue :: ConcQueue (MetaPar (), IO ())
 gpuBackstealQueue = unsafePerformIO R.newQ
 
 {-# NOINLINE resultQueue #-}
 -- | Result queue is pushed to by the GPU daemon, and popped by the
 -- 'Par' workers, meaning the 'WSDeque' is appropriate.
-resultQueue :: WSDeque (Par ())
+resultQueue :: WSDeque (MetaPar ())
 resultQueue = unsafePerformIO R.newQ
 
 {-# NOINLINE daemonTid #-}
@@ -72,11 +71,11 @@ daemonTid = unsafePerformIO $ newHotVar Nothing
 --------------------------------------------------------------------------------
 -- spawnMergeSort operator and init/steal definitions to export
 
-blockingGPUMergeSort :: V.Vector Word32 -> IO (V.Vector Word32)
-blockingGPUMergeSort v = mergeSort v
+blockingGPUMergeSort :: V.Vector Word32 -> V.Vector Word32
+blockingGPUMergeSort v = unsafePerformIO $ mergeSort v
 
-spawnGPUMergeSort :: V.Vector Word32 -> Par (IVar (V.Vector Word32))
-spawnGPUMergeSort v = do
+_spawnGPUMergeSort :: V.Vector Word32 -> MetaPar (IVar (V.Vector Word32))
+_spawnGPUMergeSort v = do
     when dbg $ liftIO $ printf "spawning CUDA mergesort computation\n"
     iv <- new
     let wrappedCUDAComp = do
@@ -88,11 +87,11 @@ spawnGPUMergeSort v = do
     liftIO $ R.pushR gpuOnlyQueue wrappedCUDAComp
     return iv     
 
-{-# INLINE spawnCPUGPUMergeSort #-}
-spawnCPUGPUMergeSort :: (V.Vector Word32 -> Par (V.Vector Word32))
+{-# INLINE _spawnCPUGPUMergeSort #-}
+_spawnCPUGPUMergeSort :: (V.Vector Word32 -> MetaPar (V.Vector Word32))
                      -> V.Vector Word32
-                     -> Par (IVar (V.Vector Word32))
-spawnCPUGPUMergeSort cpuMS v = do 
+                     -> MetaPar (IVar (V.Vector Word32))
+_spawnCPUGPUMergeSort cpuMS v = do 
     when dbg $ liftIO $ printf "spawning CUDA mergesort computation\n"
     iv <- new
     let wrappedCUDAComp = do
@@ -108,7 +107,7 @@ spawnCPUGPUMergeSort cpuMS v = do
     return iv     
 
 -- TODO: configure with different bottoming-out sorts
-parMergeSort :: V.Vector Word32 -> Par (V.Vector Word32)
+parMergeSort :: V.Vector Word32 -> MetaPar (V.Vector Word32)
 parMergeSort v = liftIO $ do
   mv <- V.thaw v
   VM.sort (mv :: M.IOVector Word32)
@@ -151,3 +150,13 @@ stealAction :: StealAction
 stealAction = SA sa 
   where sa _ _ = R.tryPopR resultQueue
 #endif
+
+class MonadPar m => CUDAMergePar m where
+  spawnGPUMergeSort    :: V.Vector Word32 -> m (IVar (V.Vector Word32))
+  spawnCPUGPUMergeSort :: (V.Vector Word32 -> m (V.Vector Word32))
+                       -> V.Vector Word32
+                       -> m (IVar (V.Vector Word32))
+
+instance CUDAMergePar MetaPar where
+  spawnGPUMergeSort    = _spawnGPUMergeSort
+  spawnCPUGPUMergeSort = _spawnCPUGPUMergeSort

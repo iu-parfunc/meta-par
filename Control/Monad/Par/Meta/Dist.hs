@@ -11,6 +11,7 @@ module Control.Monad.Par.Meta.Dist
   , Rem.globalRPCMetadata
   , WhichTransport(..)
   , MonadPar(..)
+  , IVar
   , Rem.DistributedPar(..)
 ) where
 

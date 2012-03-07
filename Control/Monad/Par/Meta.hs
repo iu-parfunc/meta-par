@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE NamedFieldPuns #-}
@@ -451,4 +452,18 @@ instance MonadPar MetaPar where
   fork   = _fork
   spawn_ = _spawn_
 
+-- This subsumes the previous classes, so just for convenience:
 
+instance MonadPar m => PC.ParFuture m IVar where
+  spawn  = spawn
+  spawnP = spawnP
+  spawn_ = spawn_
+  get    = get
+
+instance MonadPar m => PC.ParIVar m IVar where
+  fork     = fork
+  new      = new
+  put      = put
+  put_     = put_
+  newFull  = newFull
+  newFull_ = newFull_

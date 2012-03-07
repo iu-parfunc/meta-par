@@ -1,20 +1,27 @@
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# OPTIONS_GHC -Wall #-}
 
 module Control.Monad.Par.Meta.SMPMergeSort (
-    runPar
+    Par
+  , runPar
   , runParIO
   , Merge.blockingGPUMergeSort
-  , Merge.spawnGPUMergeSort
-  , Merge.spawnCPUGPUMergeSort
-  , module Control.Monad.Par.Meta
+  , Merge.CUDAMergePar(..)
+  , MonadPar(..)
+  , IVar
 ) where
 
+import Control.Applicative
 import Data.Monoid
 
 import Control.Monad.Par.Meta
 import qualified Control.Monad.Par.Meta.Resources.CUDAMergeSort as Merge
 import qualified Control.Monad.Par.Meta.Resources.SharedMemory as SharedMemory
 import qualified Control.Monad.Par.Meta.Resources.Backoff as Bkoff
+
+-- | So named for benchmark compatibility
+newtype Par a = Par { unPar :: MetaPar a }
+  deriving (Functor, Applicative, Monad, MonadPar, Merge.CUDAMergePar)
 
 tries :: Int
 tries = 20
@@ -36,7 +43,7 @@ sa = mconcat [ SharedMemory.stealAction tries
              ]
 -- sa = SharedMemory.stealAction tries <> Merge.stealAction
 
-runPar   :: MetaPar a -> a
-runParIO :: MetaPar a -> IO a
-runPar   = runMetaPar   ia sa
-runParIO = runMetaParIO ia sa
+runPar   :: Par a -> a
+runParIO :: Par a -> IO a
+runPar   = runMetaPar   ia sa . unPar
+runParIO = runMetaParIO ia sa . unPar

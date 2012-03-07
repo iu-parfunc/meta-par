@@ -6,6 +6,7 @@ module Control.Monad.Par.Meta.SharedMemoryOnly (
   , runPar
   , runParIO
   , MonadPar(..)
+  , IVar
 ) where
 
 import Control.Applicative

@@ -7,6 +7,7 @@ module Control.Monad.Par.Meta.SharedMemoryAccelerate (
   , runParIO
   , Accelerate.AcceleratePar(..)
   , MonadPar(..)
+  , IVar
 ) where
 
 import Data.Monoid

@@ -150,7 +150,7 @@ staticMergeSort cpuT gpuT cpuMS isBlocking vec = divide
     mergeGPU vec | V.length vec <= gpuT =
       case isBlocking of
         False -> get =<< spawnGPUMergeSort vec
-        True  -> liftIO $ blockingGPUMergeSort vec
+        True  -> return $ blockingGPUMergeSort vec
     mergeGPU vec = do
       let n = (V.length vec) `div` 2
       let (lhalf, rhalf) = V.splitAt n vec
