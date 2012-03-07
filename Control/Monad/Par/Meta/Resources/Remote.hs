@@ -12,11 +12,11 @@
 
 module Control.Monad.Par.Meta.Resources.Remote 
   ( initAction, stealAction, 
-    initiateShutdown, waitForShutdown, 
-    longSpawn, 
+    initiateShutdown, waitForShutdown,     
     InitMode(..),
     hostName,
-    globalRPCMetadata
+    globalRPCMetadata,
+    DistributedPar(..)
   )  
  where
 
@@ -58,7 +58,7 @@ import System.Random      (randomIO)
 import Control.Monad.Par.Meta.Resources.Debugging
    (dbg, dbgTaggedMsg, dbgDelay, dbgCharMsg, taggedmsg_global_mode)
 import Control.Monad.Par.Meta (forkWithExceptions, new, put_, Sched(Sched,no,ivarUID),
-			       IVar, Par, InitAction(IA), StealAction(SA))
+			       IVar, MetaPar, MonadPar(..), InitAction(IA), StealAction(SA))
 import qualified Network.Transport     as T
 import Remote2.Closure  (Closure(Closure))
 import Remote2.Encoding (Payload, Serializable, serialDecodePure, getPayloadContent, getPayloadType)
@@ -137,7 +137,7 @@ data Message =
 -- | Unique (per-machine) identifier for 'IVar's
 type IVarId = Int
 
-type ParClosure a = (Par a, Closure (Par a))
+type ParClosure a = (MetaPar a, Closure (MetaPar a))
 
 
 -----------------------------------------------------------------------------------
@@ -168,7 +168,7 @@ eager_connections = False
 -- An item of work that can be executed either locally, or stolen
 -- through the network.
 data LongWork = LongWork {
-     localver  :: Par (),
+     localver  :: MetaPar (),
      stealver  :: Maybe (IVarId, Closure Payload)
   }
 
@@ -214,7 +214,7 @@ mainThread :: IORef ThreadId
 mainThread = unsafePerformIO$ newIORef (error "uninitialized global 'mainThread'")
 
 {-# NOINLINE remoteIvarTable #-}
-remoteIvarTable :: HotVar (IntMap.IntMap (Payload -> Par ()))
+remoteIvarTable :: HotVar (IntMap.IntMap (Payload -> MetaPar ()))
 remoteIvarTable = unsafePerformIO$ newHotVar IntMap.empty
 
 type Token = Int64
@@ -276,7 +276,7 @@ atomicWriteFile file contents = do
 
 
 -- | This assumes a "Payload closure" as produced by makePayloadClosure below.
-deClosure :: Closure Payload -> IO (Par Payload)
+deClosure :: Closure Payload -> IO (MetaPar Payload)
 -- deClosure :: (Typeable a) => Closure a -> IO (Maybe a)
 deClosure pclo@(Closure ident payload) = do 
   dbgTaggedMsg 5$ "Declosuring : "+++ sho ident +++ " type "+++ sho payload
@@ -783,7 +783,7 @@ stealAction = SA sa
 --------------------------------------------------------------------------------
 
 -- | Spawn a parallel subcomputation that can happen either locally or remotely.
-longSpawn (local, clo@(Closure n pld)) = do
+_longSpawn (local, clo@(Closure n pld)) = do
   let pclo = fromMaybe (errorExitPure "Could not find Payload closure")
                      $ makePayloadClosure clo
   Sched{no, ivarUID} <- ask
@@ -916,15 +916,18 @@ receiveDaemon targetEnd schedMap =
 --------------------------------------------------------------------------------
 -- <boilerplate>
 
--- In Debug mode we require that IVar contents be Show-able:
+class MonadPar m => DistributedPar m where
+  -- In Debug mode we require that IVar contents be Show-able:
 #ifdef DEBUG
-longSpawn  :: (Show a, NFData a, Serializable a) 
-           => ParClosure a -> Par (IVar a)
+  longSpawn  :: (Show a, NFData a, Serializable a) 
+             => ParClosure a -> m (IVar a)
 #else
-longSpawn  :: (NFData a, Serializable a) 
-           => ParClosure a -> Par (IVar a)
-
+  longSpawn  :: (NFData a, Serializable a) 
+             => ParClosure a -> m (IVar a)
 #endif
+
+instance DistributedPar MetaPar where
+  longSpawn = _longSpawn
 
 
 #if 0 

@@ -1,17 +1,25 @@
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# OPTIONS_GHC -Wall #-}
 
 module Control.Monad.Par.Meta.SharedMemoryAccelerate (
-    runPar
+    AccPar
+  , runPar
   , runParIO
-  , Accelerate.spawnAcc
-  , module Control.Monad.Par.Meta
+  , Accelerate.AcceleratePar(..)
+  , MonadPar(..)
 ) where
 
 import Data.Monoid
 
-import Control.Monad.Par.Meta
+import Control.Applicative
+
+import Control.Monad.Par.Meta 
+
 import qualified Control.Monad.Par.Meta.Resources.Accelerate as Accelerate
 import qualified Control.Monad.Par.Meta.Resources.SharedMemory as SharedMemory
+
+newtype AccPar a = AccPar { unAccPar :: MetaPar a }
+  deriving (Functor, Applicative, Monad, MonadPar, Accelerate.AcceleratePar)
 
 tries :: Int
 tries = 20
@@ -22,7 +30,7 @@ ia = SharedMemory.initAction <> Accelerate.initAction
 sa :: StealAction
 sa = SharedMemory.stealAction tries <> Accelerate.stealAction
 
-runPar   :: Par a -> a
-runParIO :: Par a -> IO a
-runPar   = runMetaPar   ia sa
-runParIO = runMetaParIO ia sa
+runPar   :: AccPar a -> a
+runParIO :: AccPar a -> IO a
+runPar   = runMetaPar   ia sa . unAccPar
+runParIO = runMetaParIO ia sa . unAccPar

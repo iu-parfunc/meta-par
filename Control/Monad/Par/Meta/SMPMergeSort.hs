@@ -36,7 +36,7 @@ sa = mconcat [ SharedMemory.stealAction tries
              ]
 -- sa = SharedMemory.stealAction tries <> Merge.stealAction
 
-runPar   :: Par a -> a
-runParIO :: Par a -> IO a
+runPar   :: MetaPar a -> a
+runParIO :: MetaPar a -> IO a
 runPar   = runMetaPar   ia sa
 runParIO = runMetaParIO ia sa

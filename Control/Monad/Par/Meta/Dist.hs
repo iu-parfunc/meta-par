@@ -1,15 +1,20 @@
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+
 module Control.Monad.Par.Meta.Dist 
 (
-    runParDist
+    DistPar
+  , runParDist
   , runParSlave
   , runParDistWithTransport
   , runParSlaveWithTransport
   , shutdownDist
-  , Rem.longSpawn
   , Rem.globalRPCMetadata
   , WhichTransport(..)
-  , module Control.Monad.Par.Meta
+  , MonadPar(..)
+  , Rem.DistributedPar(..)
 ) where
+
+import Control.Applicative
 
 import Control.Monad.Par.Meta
 import Control.Monad.Par.Meta.Resources.Debugging (dbgTaggedMsg)
@@ -32,8 +37,11 @@ import qualified Network.Transport.Pipes as PT
 import System.Random (randomIO)
 import System.IO (stderr)
 import System.Posix.Process (getProcessID)
-import Remote2.Reg (registerCalls)
+import Remote2.Reg (registerCalls, RemoteCallMetaData)
 import GHC.Conc
+
+newtype DistPar a = DistPar { unDistPar :: MetaPar a }
+  deriving (Functor, Applicative, Monad, MonadPar, Rem.DistributedPar)
 
 --------------------------------------------------------------------------------
 
@@ -90,13 +98,18 @@ sa = mconcat [ Single.stealAction
 -- Running and shutting down the distributed Par monad:
 
 -- The default Transport is TCP:
+runParDist :: [RemoteCallMetaData] -> DistPar a -> IO a
 runParDist mt = runParDistWithTransport mt TCP
 
+runParDistWithTransport :: [RemoteCallMetaData]
+                        -> WhichTransport
+                        -> DistPar a
+                        -> IO a
 runParDistWithTransport metadata trans comp = 
    do dbgTaggedMsg 1$ BS.pack$ "Initializing distributed Par monad with transport: "++ show trans
       Control.Exception.catch main hndlr 
  where 
-   main = runMetaParIO (masterInitAction metadata (pickTrans trans)) sa comp
+   main = runMetaParIO (masterInitAction metadata (pickTrans trans)) sa (unDistPar comp)
    hndlr e = do	BS.hPutStrLn stderr $ BS.pack $ "Exception inside runParDist: "++show e
 		throw (e::SomeException)
 

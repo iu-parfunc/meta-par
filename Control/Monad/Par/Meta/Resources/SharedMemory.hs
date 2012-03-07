@@ -20,7 +20,6 @@ import qualified Data.Vector as Vector
 
 import System.Environment (getEnvironment)
 import System.IO.Unsafe
-import System.Posix.Affinity
 import System.Random.MWC
 
 import Text.Printf
@@ -100,7 +99,7 @@ stealActionForCaps caps triesPerCap = SA sa
           getNext :: IO Int
           getNext = randModN numCaps rng
           -- | Main steal loop
-          loop :: Int -> Int -> IO (Maybe (Par ()))
+          loop :: Int -> Int -> IO (Maybe (MetaPar ()))
           loop 0 _ = return Nothing
           loop n i | capVec Vector.! i == no = loop (n-1) =<< getNext
                    | otherwise =

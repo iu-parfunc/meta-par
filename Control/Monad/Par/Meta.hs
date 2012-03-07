@@ -14,7 +14,10 @@
 --   * GPU accelerators
 --   * Remote Machine "accelerators" (i.e. distributed)
 
-
+-- Concrete implementations of the 'MonadPar' class methods are
+-- prefixed with a _ so we can have them in the same module as the
+-- class declaration, but so that they don't have to be stuffed into a
+-- giant instance declaration.
 module Control.Monad.Par.Meta where
 
 import Control.Applicative
@@ -73,7 +76,7 @@ dbg = False
 --------------------------------------------------------------------------------
 -- Types
 
-newtype Par a = Par { unPar :: ContT () ROnly a }
+newtype MetaPar a = MetaPar { unMetaPar :: ContT () ROnly a }
     deriving (Monad, MonadCont, MonadReader Sched, 
               MonadIO, Applicative, Functor, Typeable)
 type ROnly = ReaderT Sched IO
@@ -84,7 +87,7 @@ data IVarContents a = Full a | Empty | Blocked [a -> IO ()]
 
 newtype InitAction = IA { runIA ::
     -- Combined 'StealAction' for the current scheduler.
-     StealAction           
+     StealAction 
     -- The global structure of schedulers.
   -> HotVar (IntMap Sched) 
   -> IO ()
@@ -104,7 +107,7 @@ newtype StealAction = SA { runSA ::
      Sched
      -- Map of all 'Sched's
   -> HotVar (IntMap Sched)
-  -> IO (Maybe (Par ()))
+  -> IO (Maybe (MetaPar ()))
   }
 
 instance Show StealAction where
@@ -124,7 +127,7 @@ data Sched = Sched
       ---- Per capability ----
       no       :: {-# UNPACK #-} !Int,
       tids     :: HotVar (Set ThreadId),
-      workpool :: WSDeque (Par ()),
+      workpool :: WSDeque (MetaPar ()),
       rng      :: HotVar GenIO, -- Random number gen for work stealing.
       mortals  :: HotVar Int, -- How many threads are mortal on this capability?
 
@@ -137,7 +140,7 @@ data Sched = Sched
       ivarUID :: HotVar Int,
 
       ---- Meta addition ----
-      stealAction :: StealAction
+      stealAction :: StealAction 
     }
 
 instance Show Sched where
@@ -174,7 +177,7 @@ ensurePinned action = do
 -- Work queue helpers
 
 {-# INLINE popWork #-}
-popWork :: Sched -> IO (Maybe (Par ()))
+popWork :: Sched -> IO (Maybe (MetaPar ()))
 popWork Sched{ workpool, no } = do
   when dbg $ do
     (cap, _) <- threadCapability =<< myThreadId
@@ -182,11 +185,11 @@ popWork Sched{ workpool, no } = do
   R.tryPopL workpool
 
 {-# INLINE pushWork #-}
-pushWork :: Sched -> Par () -> IO ()
+pushWork :: Sched -> MetaPar () -> IO ()
 pushWork Sched{ workpool } work = R.pushL workpool work
 
 {-# INLINE pushWorkEnsuringWorker #-}
-pushWorkEnsuringWorker :: Sched -> Par () -> IO (Maybe ())
+pushWorkEnsuringWorker :: Sched -> MetaPar () -> IO (Maybe ())
 pushWorkEnsuringWorker Sched { no } work = do
   let attempt n = do
         sched@Sched { no, tids } <- getSchedForCap n
@@ -291,8 +294,8 @@ spawnWorkerOnCap' qsem sa cap =
 
 errK = error "this closure shouldn't be used"
 
-reschedule :: Par a
-reschedule = Par $ ContT (workerLoop 0)
+reschedule :: MetaPar a
+reschedule = MetaPar $ ContT (workerLoop 0)
 
 workerLoop :: Int -> ignoredCont -> ROnly ()
 workerLoop failCount _k = do
@@ -301,7 +304,7 @@ workerLoop failCount _k = do
   case mwork of
     Just work -> do
       when dbg $ liftIO $ printf "[meta %d] popped work from own queue\n" no
-      runContT (unPar work) $ const (workerLoop 0 _k)
+      runContT (unMetaPar work) $ const (workerLoop 0 _k)
     Nothing -> do
       -- check if we need to die
       die <- liftIO $ modifyHotVar mortals $ \ms ->
@@ -318,14 +321,14 @@ workerLoop failCount _k = do
         liftIO$ writeIORef consecutiveFailures failCount
         mwork <- liftIO (runSA stealAction mysched globalScheds)
         case mwork of
-          Just work -> runContT (unPar work) $ const (workerLoop 0 _k)
+          Just work -> runContT (unMetaPar work) $ const (workerLoop 0 _k)
           Nothing -> do 
             when dbg $ liftIO $ dbgTaggedMsg 4 $ BS.pack $ "[meta: cap "++show no++"] failed to find work; looping" 
             workerLoop (failCount + 1) _k 
 
-{-# INLINE fork #-}
-fork :: Par () -> Par ()
-fork child = do
+{-# INLINE _fork #-}
+_fork :: MetaPar () -> MetaPar ()
+_fork child = do
   sched <- ask
   callCC $ \parent -> do
     let wrapped = parent ()
@@ -335,13 +338,13 @@ fork child = do
 --------------------------------------------------------------------------------
 -- IVar actions
 
-{-# INLINE new #-}
-new :: Par (IVar a)
-new = liftIO $ IVar <$> newHotVar Empty
+{-# INLINE _new #-}
+_new :: MetaPar (IVar a)
+_new = liftIO $ IVar <$> newHotVar Empty
 
-{-# INLINE get #-}
-get :: IVar a -> Par a
-get iv@(IVar hv) = callCC $ \cont -> do
+{-# INLINE _get #-}
+_get :: IVar a -> MetaPar a
+_get iv@(IVar hv) = callCC $ \cont -> do
   contents <- liftIO $ readHotVar hv
   case contents of
     Full a -> return a
@@ -353,9 +356,9 @@ get iv@(IVar hv) = callCC $ \cont -> do
           Blocked ks -> (Blocked (pushWork sch . cont : ks), reschedule)
           Full a     -> (Full a                            , return a)
 
-{-# INLINE put_ #-}
-put_ :: IVar a -> a -> Par ()
-put_ iv@(IVar hv) !content = do
+{-# INLINE _put_ #-}
+_put_ :: IVar a -> a -> MetaPar ()
+_put_ iv@(IVar hv) !content = do
   sch <- ask
   liftIO $ do
     ks <- modifyHotVar hv $ \contents ->
@@ -365,19 +368,13 @@ put_ iv@(IVar hv) !content = do
         Full _      -> error "multiple put"
     mapM_ ($content) ks
 
-{-# INLINE put #-}
-put iv a = deepseq a (put_ iv a)
-
-{-# INLINE spawn #-}
-spawn  p = do r <- new; fork (p >>= put  r); return r
-{-# INLINE spawn_ #-}
-spawn_ p = do r <- new; fork (p >>= put_ r); return r
-
+{-# INLINE _spawn_ #-}
+_spawn_ p = do r <- new ; fork (p >>= put_ r); return r
 
 --------------------------------------------------------------------------------
 -- Entrypoint
 
-runMetaParIO :: InitAction -> StealAction -> Par a -> IO a
+runMetaParIO :: InitAction -> StealAction -> MetaPar a -> IO a
 runMetaParIO ia sa work = ensurePinned $ 
   do
   -- gather information
@@ -423,14 +420,35 @@ runMetaParIO ia sa work = ensurePinned $
   return ans
 
 {-# INLINE runMetaPar #-}
-runMetaPar :: InitAction -> StealAction -> Par a -> a
+runMetaPar :: InitAction -> StealAction -> MetaPar a -> a
 runMetaPar ia sa work = unsafePerformIO $ runMetaParIO ia sa work
 
-
-
 --------------------------------------------------------------------------------
--- Boilerplate
+-- Class architecture
 
-spawnP :: NFData a => a -> Par (IVar a)
-spawnP = spawn . return
+class Monad m => MonadPar m where
+  new      :: m (IVar a)
+  put      :: NFData a => IVar a -> a -> m ()
+  put_     :: IVar a -> a -> m ()
+  get      :: IVar a -> m a
+  fork     :: m () -> m ()
+  spawn    :: NFData a => m a -> m (IVar a)
+  spawnP   :: NFData a => a -> m (IVar a)
+  spawn_   :: m a -> m (IVar a)
+  newFull  :: NFData a => a -> m (IVar a)
+  newFull_ :: a -> m (IVar a)
+  -- default implementations
+  put v a    = deepseq a (put_ v a)
+  spawn p    = spawn_ $ do x <- p ; deepseq x (return x)
+  spawnP     = spawn . return
+  newFull a  = deepseq a (newFull_ a)
+  newFull_ a = do v <- new ; put_ v a ; return v
+
+instance MonadPar MetaPar where
+  new    = _new
+  put_   = _put_
+  get    = _get
+  fork   = _fork
+  spawn_ = _spawn_
+
 

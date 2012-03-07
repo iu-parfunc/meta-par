@@ -5,11 +5,9 @@
 {-# OPTIONS_GHC -Wall #-}
 
 module Control.Monad.Par.Meta.Resources.Accelerate (
-    initAction
+    AcceleratePar(..)
+  , initAction
   , stealAction
-  , spawnAcc
-  , spawnAccIArray
-  , spawnAccVector
   ) where
 
 import Control.Applicative
@@ -26,7 +24,6 @@ import qualified Data.Array.Accelerate.CUDA as Acc
 import qualified Data.Array.Accelerate.Interpreter as Acc
 #endif
 import Data.Array.Accelerate.IO
-import Data.Array.Accelerate.IO.Vector
 
 import Data.Array.IArray (IArray)
 import qualified Data.Array.IArray as IArray    
@@ -65,20 +62,20 @@ gpuOnlyQueue = unsafePerformIO R.newQ
 {-# NOINLINE gpuBackstealQueue #-}
 -- | GPU-only queue is pushed to by 'Par' workers on the right, and
 -- popped by the GPU daemon and 'Par' workers on the left.
-gpuBackstealQueue :: ConcQueue (Par (), IO ())
+gpuBackstealQueue :: ConcQueue (MetaPar (), IO ())
 gpuBackstealQueue = unsafePerformIO R.newQ
 
 {-# NOINLINE resultQueue #-}
 -- | Result queue is pushed to by the GPU daemon, and popped by the
 -- 'Par' workers, meaning the 'WSDeque' is appropriate.
-resultQueue :: WSDeque (Par ())
+resultQueue :: WSDeque (MetaPar ())
 resultQueue = unsafePerformIO R.newQ
 
 --------------------------------------------------------------------------------
 -- spawnAcc operator and init/steal definitions to export
 
-spawnAcc :: (Arrays a) => Acc a -> Par (IVar a)
-spawnAcc comp = do 
+_spawnAcc :: (Arrays a) => Acc a -> MetaPar (IVar a)
+_spawnAcc comp = do 
     when dbg $ liftIO $ printf "spawning Accelerate computation\n"
     iv <- new
     let wrappedComp = do
@@ -96,15 +93,15 @@ spawnAcc comp = do
 -- of 'IArray'. Since the result of either 'Par' or the 'Acc' version
 -- may be put in the resulting 'IVar', it is expected that the result
 -- of both computations is an equivalent 'IArray'.
-spawnAccIArray :: ( EltRepr ix ~ EltRepr sh
-                  , IArray a e, IArray.Ix ix
-                  , Shape sh, Elt ix, Elt e )
-               => (Par (a ix e), Acc (Array sh e))
-               -> Par (IVar (a ix e))               
-spawnAccIArray (parComp, accComp) = do 
+_spawnAccIArray :: ( EltRepr ix ~ EltRepr sh
+                   , IArray a e, IArray.Ix ix
+                   , Shape sh, Elt ix, Elt e )
+                => (MetaPar (a ix e), Acc (Array sh e))
+                -> MetaPar (IVar (a ix e))
+_spawnAccIArray (parComp, accComp) = do 
     when dbg $ liftIO $ printf "spawning Accelerate computation\n"
     iv <- new
-    let wrappedParComp :: Par ()
+    let wrappedParComp :: MetaPar ()
         wrappedParComp = do
           when dbg $ liftIO $ printf "running backstolen computation\n"
           put_ iv =<< parComp          
@@ -123,20 +120,20 @@ spawnAccIArray (parComp, accComp) = do
 -- expected that the result of both computations is an equivalent
 -- 'Vector'. /TODO/: make a variant with unrestricted 'Shape' that,
 -- e.g., yields a vector in row-major order.
-spawnAccVector :: (Storable a, Elt a, BlockPtrs (EltRepr a) ~ ((), Ptr a))
-               => (Par (Vector.Vector a), Acc (Array DIM1 a))
-               -> Par (IVar (Vector.Vector a))
-spawnAccVector (parComp, accComp) = do 
+_spawnAccVector :: (Storable a, Elt a, BlockPtrs (EltRepr a) ~ ((), Ptr a))
+               => (MetaPar (Vector.Vector a), Acc (Array DIM1 a))
+               -> MetaPar (IVar (Vector.Vector a))
+_spawnAccVector (parComp, accComp) = do 
     when dbg $ liftIO $ printf "spawning Accelerate computation\n"
     iv <- new
-    let wrappedParComp :: Par ()
+    let wrappedParComp :: MetaPar ()
         wrappedParComp = do
           when dbg $ liftIO $ printf "running backstolen computation\n"
           put_ iv =<< parComp
         wrappedAccComp :: IO ()
         wrappedAccComp = do
           when dbg $ printf "running Accelerate computation\n"
-          ans <- toVector $ Acc.run accComp
+          let ans = toVector $ Acc.run accComp
           R.pushL resultQueue $ do
             when dbg $ liftIO $ printf "Accelerate computation finished\n"
             put_ iv ans
@@ -174,3 +171,20 @@ stealAction = SA sa
             finished@(Just _) -> return finished
             Nothing -> fmap fst `fmap` R.tryPopL gpuBackstealQueue
     
+-- New class architecture
+
+class MonadPar m => AcceleratePar m where
+  spawnAcc :: (Arrays a) => Acc a -> m (IVar a)
+  spawnAccIArray :: ( EltRepr ix ~ EltRepr sh
+                    , IArray a e, IArray.Ix ix
+                    , Shape sh, Elt ix, Elt e )
+                 => (m (a ix e), Acc (Array sh e))
+                 -> m (IVar (a ix e))
+  spawnAccVector :: (Storable a, Elt a, BlockPtrs (EltRepr a) ~ ((), Ptr a))
+                 => (m (Vector.Vector a), Acc (Array DIM1 a))
+                 -> m (IVar (Vector.Vector a))
+
+instance AcceleratePar MetaPar where
+  spawnAcc       = _spawnAcc
+  spawnAccIArray = _spawnAccIArray
+  spawnAccVector = _spawnAccVector

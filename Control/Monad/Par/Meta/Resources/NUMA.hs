@@ -91,7 +91,7 @@ stealAction topo numTries = SA sa
           let getNext :: IO Int
               getNext = randModN numNodes rng
               -- | Main steal loop
-              loop :: Int -> Int -> IO (Maybe (Par ()))
+              loop :: Int -> Int -> IO (Maybe (MetaPar ()))
               loop 0 _ = return Nothing      
               loop n i = do
                 -- unlike shared memory, ok to steal from "self"
