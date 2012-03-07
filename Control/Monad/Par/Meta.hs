@@ -51,7 +51,9 @@ import Data.IORef (IORef, writeIORef, newIORef)
 
 import System.IO.Unsafe (unsafePerformIO)
 import System.IO (stderr)
+#ifdef AFFINITY
 import System.Posix.Affinity (setAffinityOS)
+#endif
 import System.Random.MWC
 
 import Text.Printf
@@ -246,7 +248,11 @@ makeOrGetSched sa cap = do
 --------------------------------------------------------------------------------
 -- Worker routines
 
+#ifdef AFFINITY
 forkOn' cap k = forkOn cap $ setAffinityOS cap >> k
+#else
+forkOn' = forkOn
+#endif
 
 -- | Spawn a pinned worker that will stay on a capability.
 -- 
@@ -420,19 +426,11 @@ runMetaParIO ia sa work = ensurePinned $
 runMetaPar :: InitAction -> StealAction -> Par a -> a
 runMetaPar ia sa work = unsafePerformIO $ runMetaParIO ia sa work
 
+
+
 --------------------------------------------------------------------------------
 -- Boilerplate
 
 spawnP :: NFData a => a -> Par (IVar a)
 spawnP = spawn . return
 
-instance PC.ParFuture Par IVar where
-  get    = get
-  spawn  = spawn
-  spawn_ = spawn_
-  spawnP = spawnP
-
-instance PC.ParIVar Par IVar where
-  fork = fork
-  new  = new
-  put_ = put_
