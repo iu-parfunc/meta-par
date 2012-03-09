@@ -32,7 +32,7 @@ import qualified Data.ByteString.Char8 as BS
 import System.Environment (getEnvironment)
 import Data.Char (ord)
 import Data.List (lookup)
-import Data.Monoid (mconcat, (<>))
+import Data.Monoid (mconcat)
 import Control.Monad (liftM, unless)
 import Control.Monad.Par.Meta.HotVar.IORef
 import Control.Exception (catch, throw, SomeException)
@@ -59,8 +59,7 @@ instance Show WhichTransport where
   show MPI = "MPI"
 
 readTransport :: String -> WhichTransport
-readTransport "TCP"   = TCP
-readTransport "Pipes" = Pipes
+readTransport "MPI"   = MPI
 
 --------------------------------------------------------------------------------
 -- Init and Steal actions:
