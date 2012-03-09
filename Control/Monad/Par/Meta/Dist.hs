@@ -1,4 +1,8 @@
+{-# LANGUAGE CPP #-}
+
+#ifndef DIST_SMP
 module Control.Monad.Par.Meta.Dist 
+#endif
 (
     runParDist
   , runParSlave
@@ -9,6 +13,7 @@ module Control.Monad.Par.Meta.Dist
   , Rem.longSpawn
   , Rem.globalRPCMetadata
   , WhichTransport(..)
+  , readTransport
   , module Control.Monad.Par.Meta
 ) where
 
@@ -16,7 +21,13 @@ import Control.Monad.Par.Meta
 import Control.Monad.Par.Meta.Resources.Debugging (dbgTaggedMsg)
 import qualified Control.Monad.Par.Meta.Resources.Remote as Rem
 import qualified Control.Monad.Par.Meta.Resources.Backoff as Bkoff
-import qualified Control.Monad.Par.Meta.Resources.SingleThreaded as Single
+
+#ifdef DIST_SMP
+import qualified Control.Monad.Par.Meta.Resources.SharedMemory   as Local
+#else
+import qualified Control.Monad.Par.Meta.Resources.SingleThreaded as Local
+#endif
+
 import qualified Data.ByteString.Char8 as BS
 import System.Environment (getEnvironment)
 import Data.Char (ord)
@@ -47,19 +58,29 @@ data WhichTransport = MPI
 instance Show WhichTransport where
   show MPI = "MPI"
 
+readTransport :: String -> WhichTransport
+readTransport "TCP"   = TCP
+readTransport "Pipes" = Pipes
+
 --------------------------------------------------------------------------------
 -- Init and Steal actions:
 
 masterResource metadata trans = 
-  mconcat [ Single.mkResource
+  mconcat [ Local.mkResource
+#ifdef DIST_SMP
+              20
+#endif
           , Rem.mkMasterResource metadata trans
-          , Bkoff.mkResource 1000 (100*1000)
+--          , Bkoff.mkResource 1000 (100*1000)
           ]
 
 slaveResource metadata trans =
-  mconcat [ Single.mkResource
+  mconcat [ Local.mkResource
+#ifdef DIST_SMP
+              20
+#endif
           , Rem.mkSlaveResource metadata trans
-          , Bkoff.mkResource 1000 (100*1000)
+--          , Bkoff.mkResource 1000 (100*1000)
           ]
 
 --------------------------------------------------------------------------------

@@ -209,7 +209,7 @@ void seqquick(ELM *low, ELM *high)
 
 void wrap_seqquick(ELM *low, long len)
 {
-    seqquick(low, low + len);
+    seqquick(low, low + len - 1);
 }
 
 void seqmerge(ELM *low1, ELM *high1, ELM *low2, ELM *high2,
@@ -284,6 +284,12 @@ void seqmerge(ELM *low1, ELM *high1, ELM *low2, ELM *high2,
      } else {
 	  memcpy(lowdest, low1, sizeof(ELM) * (high1 - low1 + 1));
      }
+}
+
+void wrap_seqmerge(ELM *low1, long len1, ELM* low2, long len2, ELM* dest)
+{
+    seqmerge(low1, low1 + len1 - 1, 
+             low2, low2 + len2 - 1, dest);
 }
 
 #define swap_indices(a, b) \
