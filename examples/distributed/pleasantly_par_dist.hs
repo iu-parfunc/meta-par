@@ -15,19 +15,26 @@ import Control.Exception (evaluate)
 -- import System.Environment
 import qualified Control.Monad.State.Strict as S 
 import qualified Data.ByteString.Char8 as BS
-import Control.Monad.Par.Meta.Dist (longSpawn, Par, get, shutdownDist, WhichTransport(MPI),
-				    runParDistWithTransport, runParSlaveWithTransport)
+-- import Control.Monad.Par.Meta.Dist 
+import Control.Monad.Par.Meta.DistSMP
+        (longSpawn, Par, get, shutdownDist, WhichTransport(MPI))
 import Control.Monad.Par.Unsafe
 import Remote2.Call (mkClosureRec, remotable)
 import System.Process       (readProcess)
 import System.Posix.Process (getProcessID)
 import DistDefaultMain (defaultMain)
+import System.IO.Unsafe (unsafePerformIO)
+import Control.Concurrent (yield)
 
 --------------------------------------------------------------------------------
 
 -- Compute sum_n(1/n)
 work :: Int -> Int -> Double -> Double
 work offset 0 n = n
+work offset i n | i `mod` 10000 == 0 = 
+  unsafePerformIO $ do yield
+--		       putStr "."
+		       return (work offset (i-1) (n + 1 / fromIntegral (i+offset)))
 work offset (!i) (!n) = work offset (i-1) (n + 1 / fromIntegral (i+offset))
 
 kernel :: (Int, Int) -> Par Double

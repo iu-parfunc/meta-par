@@ -542,6 +542,7 @@ longSpawn (local, clo@(Closure n pld)) = do
     -- Update the table with a Par computation that can write in the result.
     modifyHotVar_ remoteIvarTable (IntMap.insert ivarid ivarCont)
 
+    -- Pushing new spawned work should go on the right end of the queue:
 #ifdef MSQUEUE
     -- For a basic queue it's only push left, pop right:
     R.pushL longQueue 
@@ -603,7 +604,9 @@ receiveDaemon schedMap =
           -- TODO: FIXME: Dig deeper into the queue to look for something stealable:
 	 Just x -> do 
 	    dbgTaggedMsg 2  "[rcvdmn]   StealRequest: Uh oh!  The bottom thing on the queue is not remote-executable.  Requeing it."
-            R.pushL longQueue x
+--            R.pushL longQueue x
+-- NEW_REQUE_STRATEGY: Get the thing on the left out of our way!  Move it to the other end.  Assumes FULL concurrent Deque:
+            R.pushR longQueue x
 	 Nothing -> do
 	    dbgTaggedMsg 4  "[rcvdmn]   StealRequest: No work to service request.  Not responding."
             return ()
@@ -615,7 +618,11 @@ receiveDaemon schedMap =
        -- Here the policy is to execute local work (woken
        -- continuations) using the SAME work queue.  We thus have
        -- heterogeneous entries in that queue.
-       R.pushL longQueue 
+
+-- NEW_REQUE_STRATEGY: Push everything NONSTEALABLE on the right.  We
+-- COULD make this stealable, but we worry about ping-poinging.
+       R.pushR longQueue 
+--       R.pushL longQueue 
 	    (LongWork { stealver = Nothing,
 			localver = do 
 				     liftIO$ dbgTaggedMsg 1 $ "[rcvdmn] RUNNING STOLEN PAR WORK "
@@ -636,7 +643,9 @@ receiveDaemon schedMap =
        case IntMap.lookup ivarid table of 
 	 Nothing  -> errorExit$ "Processing WorkFinished message, failed to find ivarID in table: "++show ivarid
 	 Just parFn -> 
-	   R.pushL longQueue (LongWork { stealver = Nothing, 
+--	   R.pushL longQueue (LongWork { stealver = Nothing, 
+-- NEW_REQUE_STRATEGY: Everything nonstealable goes on the right end:
+	   R.pushR longQueue (LongWork { stealver = Nothing, 
 					 localver = parFn payload
 				       })
        rcvLoop myid
@@ -651,6 +660,8 @@ receiveDaemon schedMap =
        schedMap' <- readHotVar schedMap
        if master then masterShutdown token
                  else workerShutdown schedMap'
+
+     other -> error$ "ERROR: ReceiveDaemon received unexpected message: "++ show other
 
 
 --------------------------------------------------------------------------------
