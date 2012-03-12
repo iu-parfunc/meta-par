@@ -40,9 +40,9 @@ import System.Random (mkStdGen, setStdGen)
 -- import HdpH.Internal.Misc (timeIO)  -- for measuring runtime
 
 import Control.Monad.Par.Meta.DistSMP
-        (longSpawn, Par, get, shutdownDist, WhichTransport(Pipes,TCP),
+        (longSpawn, Par, get, shutdownDist, WhichTransport(MPI),
 	 runParDistWithTransport, runParSlaveWithTransport, 
-	 spawn_, put, IVar, new, fork)
+	 spawn_, put, IVar, new, fork, initMPI)
 -- Tweaked version of CloudHaskell's closures:
 import Remote2.Call (mkClosureRec, remotable)
 import DistDefaultMain
@@ -324,23 +324,18 @@ main = do
 --    let (version, lower, upper, gran_arg) = parseArgs args
 
     -- From IFL paper:
-    let (role,trans_, version, lower, upper, gran_arg) = 
+    let (version, lower, upper, gran_arg) = 
           case opts_args of 
---	    [] -> ("master","tcp",2, 1, 10, 2)
-	    [] -> ("master","tcp",2, 1, 65536, 128)
-	    [r] -> (r,"tcp",2, 1, 65536, 128)
-	    [r,t] -> (r,t,2, 1, 65536, 128)
-	    [role,trans_,ver,lw,up,gran] -> (role,trans_, read ver, read lw, read up, read gran)
+	    [] -> (2, 1, 65536, 128)
+	    [ver,lw,up,gran] -> (read ver, read lw, read up, read gran)
 	    ls -> error$ "Unexpected number of arguments: "++ show ls
         seed = 3856
-        trans = parse trans_
-        parse "tcp"   = TCP
-	parse "pipes" = Pipes
 
     initrand seed
 
+    role <- initMPI
     case role of
-      "slave"  -> runParSlaveWithTransport [__remoteCallMetaData] trans
+      "slave"  -> runParSlaveWithTransport [__remoteCallMetaData] MPI
       "master" -> do
        case version of
 
@@ -367,7 +362,7 @@ main = do
 
 -}
 
-          2 -> do (output, t) <- timeIO $ runParDistWithTransport [__remoteCallMetaData] trans $ 
+          2 -> do (output, t) <- timeIO $ runParDistWithTransport [__remoteCallMetaData] MPI $ 
                                       (dist_sum_totient_chunked lower upper gran_arg)
 		  case output of
 		   x  -> do putStrLn $
