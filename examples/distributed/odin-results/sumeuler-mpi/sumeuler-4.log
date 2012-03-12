@@ -1,0 +1,3 @@
+ANSWER: {v2, chunksize=128} sum $ map totient [1..65536] = 1305514926 {runtime=99.085322}
+SELFTIMED 99.085322
+
