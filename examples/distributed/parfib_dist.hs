@@ -92,7 +92,6 @@ remotable ['parfib1, 'parfib0]
 
 main = do 
     args <- getArgs
-<<<<<<< HEAD:examples/distributed/parfib_dist.hs
     let (size, cutoff1, cutoff2) = case args of 
             []        -> (10, 1, 1)
             [n]       -> (read n, 1, 1)
