@@ -371,6 +371,8 @@ main = do
 				show upper ++ "] = " ++ show x ++
 				" {runtime=" ++ show t ++ "}"
                             putStrLn$ "SELFTIMED " ++ show t
+                            
+                  shutdownDist
 
 
 {-
