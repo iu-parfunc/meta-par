@@ -13,4 +13,4 @@ fi
 
 export VERBOSITY=$VERBOSITY
 
-mpirun -mca btl tcp,self $APP.exe +RTS -N
+mpirun -mca btl tcp,self $APP.exe $* +RTS -N 

@@ -28,7 +28,7 @@ import Debug.Trace
 import Control.Parallel.Strategies as Strategies
 import Control.Monad.Par.Meta.DistSMP 
         (longSpawn, Par, get, spawn, runParDistWithTransport,
-	 runParSlaveWithTransport, WhichTransport(Pipes, TCP), shutdownDist, readTransport)
+	 runParSlaveWithTransport, WhichTransport(MPI), shutdownDist, readTransport, initMPI)
 import Control.DeepSeq
 import System.Environment
 import System.Random.MWC
@@ -170,9 +170,10 @@ kmeans_par clusters nChunks = do
   loop 0 clusters  
 
 main = do
+  role <- initMPI
   args <- getArgs
-  case args of
-   ["master", trans, filename] -> do
+  case (role:args) of
+   ["master", filename] -> do
      pts <- loadPoints filename
      writeIORef pointData (Just pts)
      clusters <- mapM genCluster [0..nClusters-1]
@@ -180,22 +181,18 @@ main = do
      t0 <- getCurrentTime
      final_clusters <- runParDistWithTransport 
                          [__remoteCallMetaData] 
-                         (parse_trans trans)
+                         MPI
                          $ kmeans_par clusters (V.length pts)
      t1 <- getCurrentTime
      print final_clusters
      printf "SELFTIMED %.2f\n" (realToFrac (diffUTCTime t1 t0) :: Double)
-   ["slave", trans, filename] -> do
+   ["slave", filename] -> do
      pts <- loadPoints filename
      writeIORef pointData (Just pts)
-     runParSlaveWithTransport [__remoteCallMetaData] (parse_trans trans)
+     runParSlaveWithTransport [__remoteCallMetaData] MPI
    ["test", filename] -> do
      printf "Compiled with support for %d-dim points\n" vectorSize
      pts <- loadPoints filename
      printf "%d chunks of %d points each loaded\n" (V.length pts) (V.length (pts V.! 0))
-   otherwise -> error "Usage: kmeans_dist.exe (master|slave) (tcp|pipes) datafile"
+   otherwise -> error "Usage: kmeans_dist.exe datafile"
   shutdownDist
-
-parse_trans "tcp" = TCP
-parse_trans "pipes" = Pipes
-parse_trans _ = error "chicken"
