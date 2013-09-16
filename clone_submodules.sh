@@ -17,6 +17,7 @@ rm -rf full_logs
 git clone https://github.com/rrnewton/monad-par-results-full-logs.git full_logs
 popd
 
+mkdir -p accelerate
 pushd accelerate
 rm -rf accelerate-io
 git clone https://github.com/AccelerateHS/accelerate-io.git accelerate-io
