@@ -1,6 +1,6 @@
-[submodule "HSBenchScaling"]
-	path = HSBenchScaling
-	url = https://github.com/rrnewton/HSBenchScaling.git
+[submodule "HSBencher"]
+	path = HSBencher
+	url = https://github.com/rrnewton/HSBencher.git
 [submodule "bench_results"]
 	path = bench_results
 	url = https://github.com/rrnewton/monad-par-results.git
