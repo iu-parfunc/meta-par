@@ -5,17 +5,17 @@ git submodule update --init
 
 # now go in and manually clone subsubmodules to get around broken windows git
 
-pushd Deques
-rm -rf DequeTester/BenchScaling
-git clone https://github.com/rrnewton/HSBenchScaling.git DequeTester/BenchScaling
-rm -rf BenchThroughput
-git clone https://github.com/rrnewton/HSBenchThroughput.git BenchThroughput
-popd
+#pushd Deques
+#rm -rf DequeTester/BenchScaling
+#git clone https://github.com/rrnewton/HSBenchScaling.git DequeTester/BenchScaling
+#rm -rf BenchThroughput
+#git clone https://github.com/rrnewton/HSBenchThroughput.git BenchThroughput
+#popd
 
-pushd bench_results
-rm -rf full_logs
-git clone https://github.com/rrnewton/monad-par-results-full-logs.git full_logs
-popd
+#pushd bench_results
+#rm -rf full_logs
+#git clone https://github.com/rrnewton/monad-par-results-full-logs.git full_logs
+#popd
 
 mkdir -p accelerate
 pushd accelerate
